@@ -26,7 +26,7 @@ class _KioskQrScreenState extends State<KioskQrScreen> {
   }
 
   Future<void> _pobierzNowyKodQr() async {
-    final apiUrl = Uri.parse('http://10.0.2.2:8000/api/v1/kiosk/qr');
+    final apiUrl = Uri.parse('http://localhost:8000/api/v1/kiosk/qr');
 
     try {
       final response = await http.get(

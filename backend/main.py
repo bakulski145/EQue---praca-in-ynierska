@@ -5,6 +5,7 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends, HTTPException, WebSocket, WebSocketDisconnect, Query, Request
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 import redis.asyncio as aioredis
 import models
@@ -107,6 +108,13 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], 
+    allow_credentials=False,
+    allow_methods=["*"], 
+    allow_headers=["*"], 
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
