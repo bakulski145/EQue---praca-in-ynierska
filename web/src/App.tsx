@@ -7,6 +7,7 @@ import AdminUsers from './components/AdminUsers';
 import AdminSettings from './components/AdminSettings';
 import Sidebar from './components/Sidebar';
 import UserSidebar from './components/UserSidebar';
+import UserHome from './components/UserHome';
 import UserQueue from './components/UserQueue';
 
 type Role = 'admin' | 'user' | null;
@@ -18,7 +19,7 @@ const TAB_META: Record<string, { title: string; action: string | null }> = {
   lokalizacje:   { title: 'Lokalizacje', action: 'Dodaj lokalizację' },
   uzytkownicy:   { title: 'Użytkownicy', action: 'Dodaj użytkownika' },
   ustawienia:    { title: 'Ustawienia',  action: null },
-  kolejka:       { title: 'Kolejka',     action: null },
+  kolejka:       { title: 'Kolejka na żywo', action: null },
 };
 
 const SEARCHABLE_TABS = new Set(['tablety', 'lokalizacje', 'uzytkownicy']);
@@ -272,8 +273,10 @@ export default function App() {
                 : activeTab === 'ustawienia'  ? <AdminSettings theme={theme} onThemeChange={setTheme} />
                 : placeholder('Pusta zakładka')
               ) : role === 'user' ? (
-                activeTab === 'kolejka' ? <UserQueue key={contentKey} userName={userName} />
-                : placeholder('Strona główna (w przygotowaniu)')
+                activeTab === 'strona_glowna' ? <UserHome key={contentKey} userName={userName} />
+                : activeTab === 'kolejka'     ? <UserQueue key={contentKey} userName={userName} />
+                : activeTab === 'ustawienia'  ? <AdminSettings theme={theme} onThemeChange={setTheme} />
+                : placeholder('Pusta zakładka')
               ) : null
             )}
           </div>

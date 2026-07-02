@@ -95,7 +95,7 @@ export default function AdminSettings({ theme, onThemeChange }: { theme: Theme; 
         Motyw aplikacji
       </h2>
       <p style={{ fontFamily: 'var(--font-ui)', fontSize: 14, color: 'var(--text-muted)', margin: '0 0 20px' }}>
-        Wybierz wygląd panelu administracyjnego eQue.
+        Wybierz wygląd aplikacji eQue.
       </p>
 
       <div style={{ display: 'flex', gap: 14 }}>
