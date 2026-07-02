@@ -1,42 +1,34 @@
-import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
+import 'package:mobile_scanner/mobile_scanner.dart';
 import 'queue_status_screen.dart';
 
 class ScanScreen extends StatefulWidget {
-  final CameraDescription? camera;
-
-  const ScanScreen({super.key, this.camera});
+  const ScanScreen({super.key}); // Usunięto parametr camera
 
   @override
   State<ScanScreen> createState() => _ScanScreenState();
 }
 
 class _ScanScreenState extends State<ScanScreen> {
-  CameraController? _controller;
-  Future<void>? _initializeControllerFuture;
   final TextEditingController _kodController = TextEditingController();
-
-  @override
-  void initState() {
-    super.initState();
-    final camera = widget.camera;
-    if (camera != null) {
-      final controller = CameraController(camera, ResolutionPreset.medium);
-      _controller = controller;
-      _initializeControllerFuture = controller.initialize();
-    }
-  }
+  
+  // Zabezpieczenie przed wielokrotnym odpaleniem nawigacji przy szybkim skanerze
+  bool _isNavigating = false; 
 
   @override
   void dispose() {
-    _controller?.dispose();
     _kodController.dispose();
     super.dispose();
   }
 
   void _przejdzDoKolejki(String kod) {
-    if (kod.isEmpty) return;
-    // pushReplacement sprawia, że po wejściu w stan kolejki, przycisk "wstecz" nie cofnie nas do skanera
+    if (kod.isEmpty || _isNavigating) return;
+    
+    // Blokujemy możliwość kolejnych nawigacji z tego ekranu
+    setState(() {
+      _isNavigating = true;
+    });
+
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(
@@ -93,42 +85,34 @@ class _ScanScreenState extends State<ScanScreen> {
       body: Column(
         children: [
           Expanded(
-            child: _controller == null
-                ? const Center(
-                    child: Padding(
-                      padding: EdgeInsets.all(24),
-                      child: Text(
-                        'Brak dostępnej kamery. Wpisz kod ręcznie poniżej.',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(color: Colors.black54),
-                      ),
-                    ),
-                  )
-                : FutureBuilder<void>(
-                    future: _initializeControllerFuture,
-                    builder: (context, snapshot) {
-                      if (snapshot.connectionState == ConnectionState.done) {
-                        return Center(
-                          child: Container(
-                            margin: const EdgeInsets.all(24),
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(16),
-                              border: Border.all(
-                                color: const Color(0xFF1877F2),
-                                width: 3,
-                              ),
-                            ),
-                            child: ClipRRect(
-                              borderRadius: BorderRadius.circular(13),
-                              child: CameraPreview(_controller!),
-                            ),
-                          ),
-                        );
-                      } else {
-                        return const Center(child: CircularProgressIndicator());
+            child: Center(
+              child: Container(
+                margin: const EdgeInsets.all(24),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: const Color(0xFF1877F2),
+                    width: 3,
+                  ),
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(13),
+                  // Używamy gotowego widgetu MobileScanner
+                  child: MobileScanner(
+                    onDetect: (capture) {
+                      // Funkcja wywoływana automatycznie po wykryciu kodu
+                      final List<Barcode> barcodes = capture.barcodes;
+                      for (final barcode in barcodes) {
+                        if (barcode.rawValue != null) {
+                          _przejdzDoKolejki(barcode.rawValue!);
+                          break; // Przerywamy pętlę po znalezieniu pierwszego kodu
+                        }
                       }
                     },
                   ),
+                ),
+              ),
+            ),
           ),
           Padding(
             padding: const EdgeInsets.all(24.0),

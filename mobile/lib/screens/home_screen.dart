@@ -1,13 +1,10 @@
-import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'scan_screen.dart';
 import 'map_screen.dart';
 import 'kiosk_login_screen.dart';
 
 class HomeScreen extends StatelessWidget {
-  final CameraDescription? camera;
-
-  const HomeScreen({super.key, this.camera});
+  const HomeScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -77,7 +74,7 @@ class HomeScreen extends StatelessWidget {
                   Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (context) => ScanScreen(camera: camera),
+                      builder: (context) => const ScanScreen(), // Usunięto parametr camera
                     ),
                   );
                 },

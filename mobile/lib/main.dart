@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
@@ -21,23 +20,12 @@ Future<void> main() async {
     settings: initializationSettings,
   );
 
-  CameraDescription? firstCamera;
-  try {
-    final cameras = await availableCameras();
-    if (cameras.isNotEmpty) {
-      firstCamera = cameras.first;
-    }
-  } catch (_) {
-    firstCamera = null;
-  }
-
-  runApp(MyApp(camera: firstCamera));
+  // Uruchamiamy aplikację bez szukania kamer
+  runApp(const MyApp());
 }
 
 class MyApp extends StatelessWidget {
-  final CameraDescription? camera;
-
-  const MyApp({super.key, this.camera});
+  const MyApp({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -73,7 +61,7 @@ class MyApp extends StatelessWidget {
           ),
         ),
       ),
-      home: HomeScreen(camera: camera),
+      home: const HomeScreen(), // Wywołujemy HomeScreen bez parametru
     );
   }
 }
