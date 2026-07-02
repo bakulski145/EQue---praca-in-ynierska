@@ -1,15 +1,16 @@
 import 'dart:async';
-import 'dart:convert'; // Potrzebne do obsługi JSON (jsonDecode, jsonEncode)
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'package:http/http.dart' as http; // Potrzebne do zapytania startowego HTTP
+import 'package:http/http.dart' as http;
 import '../main.dart'; 
 import '../services/queue_socket_service.dart';
 
 class QueueStatusScreen extends StatefulWidget {
-  final String numerBiletu;
+  // 1. Odbieramy TOKEN z ekranu skanowania, a nie gotowy bilet
+  final String scannedToken; 
 
-  const QueueStatusScreen({super.key, required this.numerBiletu});
+  const QueueStatusScreen({super.key, required this.scannedToken});
 
   @override
   State<QueueStatusScreen> createState() => _QueueStatusScreenState();
@@ -19,45 +20,51 @@ class _QueueStatusScreenState extends State<QueueStatusScreen> {
   final QueueSocketService _socketService = QueueSocketService();
   StreamSubscription? _socketSubscription;
 
-  // Wyzerowane zmienne stanu - zostaną nadpisane przez serwer
+  // 2. Tworzymy zmienną na właściwy bilet, który zaraz dostaniemy z backendu
+  String? _prawdziwyNumerBiletu; 
+
   int _osobyPrzedNami = 0;
   int _poczatkoweOsoby = 0;
   int _szacowanyCzasMinuty = 0;
   
-  bool _isLoading = true; // Flaga stanu ładowania z API
-  String? _errorMessage;  // Przechowuje błąd, gdyby serwer leżał
+  bool _isLoading = true;
+  String? _errorMessage;
 
   @override
   void initState() {
     super.initState();
-    _pobierzDaneStartoweIDolacz(); // Inicjalizacja pobierania danych
+    _pobierzDaneStartoweIDolacz();
   }
 
-  // Funkcja, która pobiera stan początkowy przez HTTP, a potem odpala WebSocket
   Future<void> _pobierzDaneStartoweIDolacz() async {
     final apiUrl = Uri.parse('http://10.0.2.2:8000/api/v1/queue/join');
 
     try {
-      // 1. Wysyłamy żądanie do backendu o dołączenie do kolejki z naszym kodem
       final response = await http.post(
         apiUrl,
         headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'code': widget.numerBiletu}),
+        // 3. Wysyłamy do serwera ZESKANOWANY TOKEN
+        body: jsonEncode({'qr_token': widget.scannedToken}), 
       ).timeout(const Duration(seconds: 10));
 
-      if (response.statusCode == 200) {
+      // Twój mock w backendzie może zwracać 201 (Created), więc warto to uwzględnić
+      if (response.statusCode == 200 || response.statusCode == 201) {
         final Map<String, dynamic> data = jsonDecode(response.body);
 
         setState(() {
-          // Pobieramy realne dane z odpowiedzi zdefiniowanej w api_schemas.py
+          // 4. Pobieramy i zapisujemy prawdziwy bilet z odpowiedzi (np. "A12")
+          _prawdziwyNumerBiletu = data['ticket_code']; 
+          
           _osobyPrzedNami = data['queue_position'] ?? 0;
-          _poczatkoweOsoby = data['queue_position'] ?? 0; // Punkt odniesienia dla paska postępu
+          _poczatkoweOsoby = data['queue_position'] ?? 0;
           _szacowanyCzasMinuty = data['estimated_wait_time_minutes'] ?? 0;
           _isLoading = false;
         });
 
-        // 2. Skoro mamy już stan początkowy, otwieramy WebSocket do śledzenia zmian w czasie rzeczywistym
-        _podlaczWebSocket();
+        // 5. Do WebSocketa łączymy się już używając prawdziwego biletu!
+        if (_prawdziwyNumerBiletu != null) {
+          _podlaczWebSocket();
+        }
       } else {
         setState(() {
           _errorMessage = 'Błąd serwera (Kod: ${response.statusCode})';
@@ -73,7 +80,8 @@ class _QueueStatusScreenState extends State<QueueStatusScreen> {
   }
 
   void _podlaczWebSocket() {
-    _socketSubscription = _socketService.connectToQueue(widget.numerBiletu).listen(
+    // Używamy wyciągniętego z API _prawdziwyNumerBiletu
+    _socketSubscription = _socketService.connectToQueue(_prawdziwyNumerBiletu!).listen(
       (data) {
         setState(() {
           final String event = data['event'] ?? '';
@@ -166,7 +174,6 @@ class _QueueStatusScreenState extends State<QueueStatusScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Widok 1: Ładowanie danych po wejściu na ekran
     if (_isLoading) {
       return Scaffold(
         appBar: AppBar(title: const Text('Dołączanie do kolejki...')),
@@ -176,14 +183,13 @@ class _QueueStatusScreenState extends State<QueueStatusScreen> {
             children: [
               CircularProgressIndicator(),
               SizedBox(height: 16),
-              Text('Pobieranie aktualnej pozycji z eQue...'),
+              Text('Weryfikacja kodu i pobieranie biletu...'), // Zmiana tekstu
             ],
           ),
         ),
       );
     }
 
-    // Widok 2: Obsługa błędu, np. brak sieci lub wyłączony serwer
     if (_errorMessage != null) {
       return Scaffold(
         appBar: AppBar(title: const Text('Błąd połączenia')),
@@ -218,7 +224,6 @@ class _QueueStatusScreenState extends State<QueueStatusScreen> {
       );
     }
 
-    // Widok 3: Właściwy ekran statusu z realnymi danymi pobranymi z API
     String tekstCzasu = "~$_szacowanyCzasMinuty min";
     double postep = _poczatkoweOsoby > 0 ? _osobyPrzedNami / _poczatkoweOsoby : 0.0;
 
@@ -246,7 +251,8 @@ class _QueueStatusScreenState extends State<QueueStatusScreen> {
               children: [
                 const Text('Twój numer biletowy:', style: TextStyle(fontSize: 14, color: Colors.black54)),
                 Text(
-                  widget.numerBiletu,
+                  // 6. Wyświetlamy tutaj bilet z bazy (lub '...' w razie pustej zmiennej)
+                  _prawdziwyNumerBiletu ?? '...', 
                   style: const TextStyle(fontSize: 56, fontWeight: FontWeight.w900, color: Color(0xFF1877F2), letterSpacing: 2),
                 ),
                 const Divider(height: 40, thickness: 1),
