@@ -1,28 +1,22 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import { api, ApiError } from '../lib/api';
+import type { TabletResponse, LocationResponse } from '../lib/apiTypes';
 
-type OnlineStatus = 'online' | 'offline';
+type SimStatus = 'online' | 'offline';
 
-interface Device {
-  id: string;
-  name: string;
-  locationId: string;
-  active: boolean;
-}
-
-interface Location {
-  id: string;
-  name: string;
-  active?: boolean;
-}
+const POLL_INTERVAL_MS = 10000;
 
 interface SimState {
-  status: OnlineStatus;
+  status: SimStatus;
   code: string;
 }
 
 /* ── helpers ─────────────────────────────────────────── */
 
-function randomStatus(): OnlineStatus {
+/* Prawdziwy status online/offline wymaga heartbeatu (last_seen_at), którego
+   backend jeszcze nigdzie nie zapisuje — więc to (i "aktualny kod") zostaje
+   symulowane lokalnie do czasu aż backend dostanie realny heartbeat (WS ping). */
+function randomStatus(): SimStatus {
   return Math.random() < 0.75 ? 'online' : 'offline';
 }
 
@@ -191,34 +185,47 @@ const labelStyle: React.CSSProperties = {
 /* ── main component ───────────────────────────────────── */
 
 export default function AdminDashboard({ addOpen = false, onAddClose, searchQuery = '' }: { addOpen?: boolean; onAddClose?: () => void; searchQuery?: string }) {
-  const [locations] = useState<Location[]>(() => {
-    const saved = localStorage.getItem('eque_locations');
-    if (saved) return JSON.parse(saved);
-    return [
-      { id: 'loc1', name: 'Hol Główny' },
-      { id: 'loc2', name: 'Okienko Rejestracji 1' },
-      { id: 'loc3', name: 'Gabinet Kardiologiczny 12' },
-    ];
-  });
+  const [locations, setLocations] = useState<LocationResponse[]>([]);
+  const [devices, setDevices] = useState<TabletResponse[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const [devices, setDevices] = useState<Device[]>(() => {
-    const saved = localStorage.getItem('eque_devices');
-    const parsed: Device[] = saved ? JSON.parse(saved) : [
-      { id: 'dev1', name: 'Tablet Wejściowy', locationId: 'loc1', active: true },
-      { id: 'dev2', name: 'Tablet Rejestracja', locationId: 'loc2', active: true },
-      { id: 'dev3', name: 'Kiosk Kardiologia', locationId: 'loc3', active: true },
-    ];
-    return parsed.map(d => ({ ...d, active: d.active ?? true }));
-  });
+  const refetch = useCallback(async () => {
+    try {
+      const [t, l] = await Promise.all([
+        api.get<TabletResponse[]>('/admin/tablets'),
+        api.get<LocationResponse[]>('/admin/locations'),
+      ]);
+      setDevices(t);
+      setLocations(l);
+    } catch {
+      // zachowaj ostatnio znane dane — kolejny poll spróbuje ponownie
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
-  /* simulated online/offline + current code — one random flip every 8s, active devices only */
-  const [sim, setSim] = useState<Record<string, SimState>>(() =>
-    Object.fromEntries(devices.map(d => [d.id, initSim()]))
-  );
+  useEffect(() => {
+    refetch();
+    const id = setInterval(refetch, POLL_INTERVAL_MS);
+    return () => clearInterval(id);
+  }, [refetch]);
+
+  /* symulowane online/offline + aktualny kod — patrz komentarz przy randomStatus() */
+  const [sim, setSim] = useState<Record<number, SimState>>({});
+  useEffect(() => {
+    setSim(prev => {
+      let changed = false;
+      const next = { ...prev };
+      for (const d of devices) {
+        if (!(d.id in next)) { next[d.id] = initSim(); changed = true; }
+      }
+      return changed ? next : prev;
+    });
+  }, [devices]);
   useEffect(() => {
     const id = setInterval(() => {
       setSim(prev => {
-        const activeDevices = devices.filter(d => d.active);
+        const activeDevices = devices.filter(d => d.is_active);
         if (activeDevices.length === 0) return prev;
         const target = activeDevices[Math.floor(Math.random() * activeDevices.length)];
         return { ...prev, [target.id]: initSim() };
@@ -227,50 +234,59 @@ export default function AdminDashboard({ addOpen = false, onAddClose, searchQuer
     return () => clearInterval(id);
   }, [devices]);
 
-  const [editingDevice, setEditingDevice] = useState<Device | null>(null);
+  const [editingDevice, setEditingDevice] = useState<TabletResponse | null>(null);
 
-  const saveDevices = (updated: Device[]) => {
-    setDevices(updated);
-    localStorage.setItem('eque_devices', JSON.stringify(updated));
-  };
+  const openEdit = (device: TabletResponse) => setEditingDevice({ ...device });
 
-  const openEdit = (device: Device) => setEditingDevice({ ...device });
-
-  const handleToggleActive = (device: Device) => {
-    if (device.active) {
-      if (!window.confirm(`Czy na pewno chcesz dezaktywować tablet "${device.name || 'bez nazwy'}"? Zostanie odłączony od przypisanej lokalizacji.`)) return;
-      saveDevices(devices.map(d => d.id === device.id ? { ...d, active: false, locationId: '' } : d));
-    } else {
-      saveDevices(devices.map(d => d.id === device.id ? { ...d, active: true } : d));
+  const handleToggleActive = async (device: TabletResponse) => {
+    if (device.is_active && !window.confirm(`Czy na pewno chcesz dezaktywować tablet "${device.name || 'bez nazwy'}"? Zostanie odłączony od przypisanej lokalizacji.`)) return;
+    try {
+      const updated = await api.post<TabletResponse>(`/admin/tablets/${device.id}/${device.is_active ? 'deactivate' : 'activate'}`);
+      setDevices(prev => prev.map(d => d.id === updated.id ? updated : d));
+    } catch (err) {
+      window.alert(err instanceof ApiError ? err.message : 'Nie udało się zmienić statusu tabletu.');
     }
   };
 
-  const handleSimulateScan = () => {
-    const newDevice: Device = { id: Date.now().toString(), name: '', locationId: '', active: true };
-    saveDevices([...devices, newDevice]);
-    setSim(prev => ({ ...prev, [newDevice.id]: initSim() }));
-    onAddClose?.();
+  const handleSimulateScan = async () => {
+    try {
+      const created = await api.post<TabletResponse>('/admin/tablets', { name: '', location_id: null });
+      setDevices(prev => [...prev, created]);
+      setSim(prev => ({ ...prev, [created.id]: initSim() }));
+      onAddClose?.();
+    } catch (err) {
+      window.alert(err instanceof ApiError ? err.message : 'Nie udało się dodać tabletu.');
+    }
   };
 
-  const handleSaveEdit = () => {
+  const handleSaveEdit = async () => {
     if (!editingDevice) return;
-    /* only one tablet may belong to a location — bump any other tablet that already had it */
-    saveDevices(devices.map(d => {
-      if (d.id === editingDevice.id) return editingDevice;
-      if (editingDevice.locationId && d.locationId === editingDevice.locationId) return { ...d, locationId: '' };
-      return d;
-    }));
-    setEditingDevice(null);
+    try {
+      const updated = await api.put<TabletResponse>(`/admin/tablets/${editingDevice.id}`, {
+        name: editingDevice.name,
+        location_id: editingDevice.location_id,
+      });
+      setDevices(prev => prev.map(d => d.id === updated.id ? updated : d));
+      setEditingDevice(null);
+      refetch(); // odśwież lokalizacje — poprzedni najemca mógł zostać odłączony
+    } catch (err) {
+      window.alert(err instanceof ApiError ? err.message : 'Nie udało się zapisać zmian.');
+    }
   };
 
-  const handleDeleteDevice = () => {
+  const handleDeleteDevice = async () => {
     if (!editingDevice) return;
     if (!window.confirm(`Czy na pewno chcesz usunąć tablet "${editingDevice.name || 'bez nazwy'}"?`)) return;
-    saveDevices(devices.filter(d => d.id !== editingDevice.id));
-    setEditingDevice(null);
+    try {
+      await api.del(`/admin/tablets/${editingDevice.id}`);
+      setDevices(prev => prev.filter(d => d.id !== editingDevice.id));
+      setEditingDevice(null);
+    } catch (err) {
+      window.alert(err instanceof ApiError ? err.message : 'Nie udało się usunąć tabletu.');
+    }
   };
 
-  const getLocationName = (locId: string) => locations.find(l => l.id === locId)?.name ?? '';
+  const getLocationName = (locId: number | null) => locations.find(l => l.id === locId)?.name ?? '';
 
   const visibleDevices = searchQuery.trim()
     ? devices.filter(d => d.name.toLowerCase().includes(searchQuery.trim().toLowerCase()))
@@ -279,7 +295,7 @@ export default function AdminDashboard({ addOpen = false, onAddClose, searchQuer
   /* ── render ────────────────────────────────────────── */
   return (
     <div>
-      {visibleDevices.length === 0 ? (
+      {!loading && visibleDevices.length === 0 ? (
         <div style={{ background: 'var(--surface-card)', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-sm)', border: '1px solid var(--border-subtle)', padding: 40, textAlign: 'center' }}>
           <p style={{ fontFamily: 'var(--font-ui)', color: 'var(--text-muted)', fontSize: 15, margin: 0 }}>
             {devices.length === 0 ? 'Brak dodanych tabletów.' : 'Brak tabletów pasujących do wyszukiwania.'}
@@ -289,12 +305,12 @@ export default function AdminDashboard({ addOpen = false, onAddClose, searchQuer
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(380px, 1fr))', gap: 16 }}>
           {visibleDevices.map(device => {
             const nameMissing = !device.name;
-            const locMissing = !device.locationId;
+            const locMissing = !device.location_id;
             const deviceSim = sim[device.id] ?? initSim();
             const isOnline = deviceSim.status === 'online';
-            const displayCode = device.active && isOnline ? deviceSim.code : '—';
+            const displayCode = device.is_active && isOnline ? deviceSim.code : '—';
 
-            const badge = !device.active
+            const badge = !device.is_active
               ? { tone: 'neutral' as const, label: 'Dezaktywowany' }
               : isOnline
                 ? { tone: 'success' as const, label: 'Online' }
@@ -302,7 +318,7 @@ export default function AdminDashboard({ addOpen = false, onAddClose, searchQuer
 
             return (
               <div key={device.id} style={{
-                background: device.active ? 'var(--surface-card)' : 'var(--surface-sunken)',
+                background: device.is_active ? 'var(--surface-card)' : 'var(--surface-sunken)',
                 border: '1px solid var(--border-subtle)',
                 borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-sm)', padding: 20,
                 transition: 'background var(--dur-base) var(--ease-out)',
@@ -311,9 +327,9 @@ export default function AdminDashboard({ addOpen = false, onAddClose, searchQuer
                   <div style={{ display: 'flex', gap: 14, minWidth: 0 }}>
                     <div style={{
                       width: 46, height: 46, borderRadius: 'var(--radius-md)', flexShrink: 0,
-                      background: device.active ? 'var(--brand-subtle)' : 'var(--surface-sunken)',
+                      background: device.is_active ? 'var(--brand-subtle)' : 'var(--surface-sunken)',
                       display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      color: device.active ? 'var(--text-brand)' : 'var(--text-faint)',
+                      color: device.is_active ? 'var(--text-brand)' : 'var(--text-faint)',
                     }}>
                       <TabletIcon />
                     </div>
@@ -329,7 +345,7 @@ export default function AdminDashboard({ addOpen = false, onAddClose, searchQuer
                         fontFamily: 'var(--font-ui)', fontSize: 13, marginTop: 2,
                         color: locMissing ? 'var(--red-600)' : 'var(--text-muted)',
                       }}>
-                        {locMissing ? 'Brak przypisanej lokalizacji' : getLocationName(device.locationId)}
+                        {locMissing ? 'Brak przypisanej lokalizacji' : getLocationName(device.location_id)}
                       </div>
                     </div>
                   </div>
@@ -351,7 +367,7 @@ export default function AdminDashboard({ addOpen = false, onAddClose, searchQuer
                     </span>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <Switch checked={device.active} onChange={() => handleToggleActive(device)} ariaLabel={device.active ? 'Dezaktywuj tablet' : 'Aktywuj tablet'} />
+                    <Switch checked={device.is_active} onChange={() => handleToggleActive(device)} ariaLabel={device.is_active ? 'Dezaktywuj tablet' : 'Aktywuj tablet'} />
                     <EditIconButton onClick={() => openEdit(device)} />
                   </div>
                 </div>
@@ -403,7 +419,7 @@ export default function AdminDashboard({ addOpen = false, onAddClose, searchQuer
         {editingDevice && (() => {
           const editSim = sim[editingDevice.id] ?? initSim();
           const editIsOnline = editSim.status === 'online';
-          const editBadge = !editingDevice.active
+          const editBadge = !editingDevice.is_active
             ? { tone: 'neutral' as const, label: 'Dezaktywowany' }
             : editIsOnline
               ? { tone: 'success' as const, label: 'Online' }
@@ -413,9 +429,9 @@ export default function AdminDashboard({ addOpen = false, onAddClose, searchQuer
               <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '16px 18px', background: 'var(--surface-sunken)', borderRadius: 'var(--radius-md)' }}>
                 <div style={{
                   width: 48, height: 48, borderRadius: 'var(--radius-md)', flexShrink: 0,
-                  background: editingDevice.active ? 'var(--brand-subtle)' : 'var(--surface-card)',
+                  background: editingDevice.is_active ? 'var(--brand-subtle)' : 'var(--surface-card)',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  color: editingDevice.active ? 'var(--text-brand)' : 'var(--text-faint)',
+                  color: editingDevice.is_active ? 'var(--text-brand)' : 'var(--text-faint)',
                 }}>
                   <TabletIcon size={24} />
                 </div>
@@ -443,15 +459,15 @@ export default function AdminDashboard({ addOpen = false, onAddClose, searchQuer
               <Field label="Przypisana lokalizacja">
                 <select
                   style={inputStyle}
-                  value={editingDevice.locationId}
-                  disabled={!editingDevice.active}
-                  onChange={e => setEditingDevice({ ...editingDevice, locationId: e.target.value })}
+                  value={editingDevice.location_id ?? ''}
+                  disabled={!editingDevice.is_active}
+                  onChange={e => setEditingDevice({ ...editingDevice, location_id: e.target.value ? Number(e.target.value) : null })}
                   onFocus={e => { e.currentTarget.style.borderColor = 'var(--focus-ring)'; }}
                   onBlur={e => { e.currentTarget.style.borderColor = 'var(--border-default)'; }}
                 >
                   <option value="">Nieprzypisany do żadnej lokalizacji</option>
-                  {locations.filter(loc => loc.active ?? true).map(loc => {
-                    const occupant = devices.find(d => d.locationId === loc.id && d.id !== editingDevice.id);
+                  {locations.filter(loc => loc.is_active).map(loc => {
+                    const occupant = devices.find(d => d.location_id === loc.id && d.id !== editingDevice.id);
                     return (
                       <option key={loc.id} value={loc.id}>
                         {loc.name}{occupant ? ` (zastąpi: ${occupant.name || 'tablet bez nazwy'})` : ''}
@@ -459,7 +475,7 @@ export default function AdminDashboard({ addOpen = false, onAddClose, searchQuer
                     );
                   })}
                 </select>
-                {!editingDevice.active && (
+                {!editingDevice.is_active && (
                   <p style={{ fontFamily: 'var(--font-ui)', fontSize: 12.5, color: 'var(--text-faint)', margin: '6px 0 0' }}>
                     Aktywuj tablet, aby przypisać go do lokalizacji.
                   </p>

@@ -1,16 +1,16 @@
-import { useState } from 'react';
-import { formatTime, seedLocationQueue, type LocationQueueState } from '../lib/queueSim';
+import { useState, useEffect, useCallback } from 'react';
+import { api, ApiError } from '../lib/api';
+import type { LocationResponse, QueueResponse } from '../lib/apiTypes';
+import { recordResolved, getActivity } from '../lib/ticketActivity';
 
-interface Location {
-  id: string;
-  name: string;
-  active?: boolean;
+const POLL_INTERVAL_MS = 10000;
+
+function formatTime(iso: string) {
+  return new Date(iso).toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' });
 }
 
-interface UserData {
-  id: string;
-  fullName: string;
-  locationIds: string[];
+function minutesSince(iso: string): number {
+  return Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
 }
 
 /* ── icons ─────────────────────────────────────────────── */
@@ -83,71 +83,80 @@ function EmptyState({ text, hint }: { text: string; hint?: string }) {
 
 /* ── main component ───────────────────────────────────── */
 
-export default function UserQueue({ userName }: { userName: string }) {
-  const [selectedLocationId, setSelectedLocationId] = useState('');
+export default function UserQueue({ locationIds }: { userName: string; locationIds: number[] }) {
+  const [allLocations, setAllLocations] = useState<LocationResponse[]>([]);
+  const [selectedLocationId, setSelectedLocationId] = useState<number | ''>('');
+  const [queue, setQueue] = useState<QueueResponse | null>(null);
   const [tab, setTab] = useState<'oczekujacy' | 'zakonczone'>('oczekujacy');
-  const [byLocation, setByLocation] = useState<Record<string, LocationQueueState>>({});
+  const [, bumpActivity] = useState(0); // re-render po recordResolved(), żeby zakładka "Zakończone" od razu pokazała wpis
 
-  const [allLocations] = useState<Location[]>(() => {
-    const saved = localStorage.getItem('eque_locations');
-    return saved ? JSON.parse(saved) : [];
-  });
+  useEffect(() => {
+    api.get<LocationResponse[]>('/admin/locations')
+      .then(locs => setAllLocations(locs.filter(l => locationIds.includes(l.id))))
+      .catch(() => {});
+  }, [locationIds]);
 
-  const [allUsers] = useState<UserData[]>(() => {
-    const saved = localStorage.getItem('eque_users');
-    return saved ? JSON.parse(saved) : [];
-  });
+  const availableLocations = allLocations.filter(l => l.is_active);
 
-  const currentUser = allUsers.find(u => u.fullName === userName);
-  const assignedLocationIds = currentUser?.locationIds || [];
-  const availableLocations = allLocations.filter(l => assignedLocationIds.includes(l.id) && (l.active ?? true));
+  const refetchQueue = useCallback(async (locId: number) => {
+    try {
+      const q = await api.get<QueueResponse>(`/admin/locations/${locId}/queue`);
+      setQueue(q);
+    } catch {
+      // zachowaj ostatni znany stan — kolejny poll spróbuje ponownie
+    }
+  }, []);
 
-  const getState = (locationId: string): LocationQueueState =>
-    byLocation[locationId] ?? seedLocationQueue(locationId);
-
-  const updateState = (locationId: string, next: LocationQueueState) => {
-    setByLocation(prev => ({ ...prev, [locationId]: next }));
-  };
+  useEffect(() => {
+    if (selectedLocationId === '') { setQueue(null); return; }
+    refetchQueue(selectedLocationId);
+    const id = setInterval(() => refetchQueue(selectedLocationId), POLL_INTERVAL_MS);
+    return () => clearInterval(id);
+  }, [selectedLocationId, refetchQueue]);
 
   const selectLocation = (id: string) => {
-    setSelectedLocationId(id);
+    setSelectedLocationId(id ? Number(id) : '');
     setTab('oczekujacy');
   };
 
-  const state = selectedLocationId ? getState(selectedLocationId) : null;
-
-  const resolveServing = (outcome: 'done' | 'noshow') => {
-    if (!state || !state.serving) return;
-    const [nextServing, ...restWaiting] = state.waiting;
-    updateState(selectedLocationId, {
-      serving: nextServing ? { ...nextServing, status: 'serving' } : null,
-      waiting: restWaiting,
-      completed: [
-        { ...state.serving, status: outcome, resolvedAt: formatTime(new Date()) },
-        ...state.completed,
-      ],
-    });
+  const resolveServing = async (action: 'complete' | 'cancel') => {
+    if (!queue?.serving || selectedLocationId === '') return;
+    const ticket = queue.serving;
+    try {
+      await api.post(`/admin/tickets/${ticket.id}/${action}`);
+      recordResolved({
+        ticketId: ticket.id,
+        ticketCode: ticket.ticket_code,
+        customerName: ticket.customer_name,
+        locationId: selectedLocationId,
+        outcome: action === 'complete' ? 'done' : 'noshow',
+        resolvedAt: new Date().toISOString(),
+      });
+      bumpActivity(n => n + 1);
+      refetchQueue(selectedLocationId);
+    } catch (err) {
+      window.alert(err instanceof ApiError ? err.message : 'Nie udało się wykonać akcji.');
+    }
   };
 
-  const callSpecific = (entryId: number) => {
-    if (!state) return;
-    const target = state.waiting.find(e => e.id === entryId);
-    if (!target) return;
-    const completed = state.serving
-      ? [{ ...state.serving, status: 'done' as const, resolvedAt: formatTime(new Date()) }, ...state.completed]
-      : state.completed;
-    updateState(selectedLocationId, {
-      serving: { ...target, status: 'serving' },
-      waiting: state.waiting.filter(e => e.id !== entryId),
-      completed,
-    });
+  const callTicket = async (ticketId: string) => {
+    if (selectedLocationId === '') return;
+    try {
+      await api.post(`/admin/tickets/${ticketId}/call`);
+      refetchQueue(selectedLocationId);
+    } catch (err) {
+      window.alert(err instanceof ApiError ? err.message : 'Nie udało się wezwać klienta.');
+    }
   };
 
   const callFirstWaiting = () => {
-    if (!state || state.waiting.length === 0) return;
-    const [next, ...rest] = state.waiting;
-    updateState(selectedLocationId, { ...state, serving: { ...next, status: 'serving' }, waiting: rest });
+    if (!queue || queue.waiting.length === 0) return;
+    callTicket(queue.waiting[0].id);
   };
+
+  const sessionCompleted = selectedLocationId !== ''
+    ? getActivity().filter(a => a.locationId === selectedLocationId)
+    : [];
 
   /* ── styles ─────────────────────────────────────────── */
 
@@ -203,11 +212,11 @@ export default function UserQueue({ userName }: { userName: string }) {
         )}
       </div>
 
-      {!selectedLocationId ? (
+      {selectedLocationId === '' ? (
         <div style={{ background: 'var(--surface-card)', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-sm)', border: '1px solid var(--border-subtle)' }}>
           <EmptyState text="Wybierz lokalizację, aby zobaczyć kolejkę" hint="Kolejka na żywo pojawi się po wybraniu lokalizacji z listy powyżej." />
         </div>
-      ) : state && (
+      ) : queue && (
         <>
           {/* currently serving */}
           <div style={{
@@ -221,17 +230,17 @@ export default function UserQueue({ userName }: { userName: string }) {
                   Teraz obsługiwany
                 </div>
                 <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 40, color: 'var(--text-brand)', lineHeight: 1.1, fontVariantNumeric: 'tabular-nums' }}>
-                  {state.serving ? state.serving.code : '—'}
+                  {queue.serving ? queue.serving.ticket_code : '—'}
                 </div>
               </div>
-              {state.serving && <StatusPill tone="brand">W TRAKCIE</StatusPill>}
+              {queue.serving && <StatusPill tone="brand">W TRAKCIE</StatusPill>}
             </div>
 
-            {state.serving ? (
+            {queue.serving ? (
               <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
                 <button
                   style={btnDanger}
-                  onClick={() => resolveServing('noshow')}
+                  onClick={() => resolveServing('cancel')}
                   onMouseEnter={e => { e.currentTarget.style.background = 'var(--red-600)'; }}
                   onMouseLeave={e => { e.currentTarget.style.background = 'var(--red-500)'; }}
                 >
@@ -239,14 +248,14 @@ export default function UserQueue({ userName }: { userName: string }) {
                 </button>
                 <button
                   style={btnPrimary}
-                  onClick={() => resolveServing('done')}
+                  onClick={() => resolveServing('complete')}
                   onMouseEnter={e => { e.currentTarget.style.background = 'var(--brand-hover)'; }}
                   onMouseLeave={e => { e.currentTarget.style.background = 'var(--brand)'; }}
                 >
                   <CheckCircleIcon /> Obsłużono · wezwij następnego
                 </button>
               </div>
-            ) : state.waiting.length > 0 ? (
+            ) : queue.waiting.length > 0 ? (
               <button
                 style={btnPrimary}
                 onClick={callFirstWaiting}
@@ -265,7 +274,7 @@ export default function UserQueue({ userName }: { userName: string }) {
             {(['oczekujacy', 'zakonczone'] as const).map(t => {
               const active = tab === t;
               const label = t === 'oczekujacy' ? 'Oczekujący' : 'Zakończone';
-              const count = t === 'oczekujacy' ? state.waiting.length : state.completed.length;
+              const count = t === 'oczekujacy' ? queue.waiting.length : sessionCompleted.length;
               return (
                 <button
                   key={t}
@@ -298,31 +307,35 @@ export default function UserQueue({ userName }: { userName: string }) {
           {/* list card */}
           <div style={{ background: 'var(--surface-card)', border: '1px solid var(--border-subtle)', borderRadius: '0 0 var(--radius-lg) var(--radius-lg)', boxShadow: 'var(--shadow-sm)', overflow: 'hidden' }}>
             {tab === 'oczekujacy' ? (
-              state.waiting.length === 0 ? (
+              queue.waiting.length === 0 ? (
                 <EmptyState text="Brak oczekujących" hint="Wszyscy klienci zostali wezwani." />
               ) : (
                 <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
-                  {state.waiting.map((entry, i) => (
+                  {queue.waiting.map((entry, i) => (
                     <li key={entry.id} style={{
                       display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16,
                       padding: '18px 24px', borderTop: i === 0 ? 'none' : '1px solid var(--border-subtle)', flexWrap: 'wrap',
                     }}>
                       <div style={{ display: 'flex', alignItems: 'baseline', gap: 18, minWidth: 0 }}>
                         <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 22, color: 'var(--text-strong)', fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>
-                          {entry.code}
+                          {entry.ticket_code}
                         </span>
                         <div style={{ minWidth: 0 }}>
-                          <div style={{ fontFamily: 'var(--font-ui)', fontWeight: 700, fontSize: 14.5, color: 'var(--text-strong)' }}>{entry.clientLabel}</div>
-                          <div style={{ fontFamily: 'var(--font-ui)', fontSize: 13, color: 'var(--text-muted)' }}>Dodano {entry.addedAt}</div>
+                          <div style={{ fontFamily: 'var(--font-ui)', fontWeight: 700, fontSize: 14.5, color: 'var(--text-strong)' }}>
+                            {entry.customer_name || `Zgłoszenie ${entry.ticket_code}`}
+                          </div>
+                          <div style={{ fontFamily: 'var(--font-ui)', fontSize: 13, color: 'var(--text-muted)' }}>
+                            Dodano {formatTime(entry.joined_at)}{entry.appointment_time ? ` · wizyta ${entry.appointment_time}` : ''}
+                          </div>
                         </div>
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexShrink: 0 }}>
                         <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontFamily: 'var(--font-ui)', fontSize: 13.5, color: 'var(--text-muted)' }}>
-                          <ClockIcon /> ~{entry.etaMin} min
+                          <ClockIcon /> czeka {minutesSince(entry.joined_at)} min
                         </span>
                         <StatusPill tone="amber">OCZEKUJE</StatusPill>
                         <button
-                          onClick={() => callSpecific(entry.id)}
+                          onClick={() => callTicket(entry.id)}
                           style={{ background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'var(--font-ui)', fontWeight: 700, fontSize: 14, color: 'var(--text-brand)', padding: '4px 2px' }}
                           onMouseEnter={e => { e.currentTarget.style.textDecoration = 'underline'; }}
                           onMouseLeave={e => { e.currentTarget.style.textDecoration = 'none'; }}
@@ -335,26 +348,28 @@ export default function UserQueue({ userName }: { userName: string }) {
                 </ul>
               )
             ) : (
-              state.completed.length === 0 ? (
-                <EmptyState text="Brak zakończonych zgłoszeń" />
+              sessionCompleted.length === 0 ? (
+                <EmptyState text="Brak zakończonych zgłoszeń w tej sesji" hint="Historia bieżącej zmiany — backend nie przechowuje jeszcze pełnej historii biletów." />
               ) : (
                 <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
-                  {state.completed.map((entry, i) => (
-                    <li key={entry.id} style={{
+                  {sessionCompleted.map((entry, i) => (
+                    <li key={entry.ticketId} style={{
                       display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16,
                       padding: '18px 24px', borderTop: i === 0 ? 'none' : '1px solid var(--border-subtle)', flexWrap: 'wrap',
                     }}>
                       <div style={{ display: 'flex', alignItems: 'baseline', gap: 18, minWidth: 0 }}>
                         <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 22, color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>
-                          {entry.code}
+                          {entry.ticketCode}
                         </span>
                         <div style={{ minWidth: 0 }}>
-                          <div style={{ fontFamily: 'var(--font-ui)', fontWeight: 700, fontSize: 14.5, color: 'var(--text-strong)' }}>{entry.clientLabel}</div>
-                          <div style={{ fontFamily: 'var(--font-ui)', fontSize: 13, color: 'var(--text-muted)' }}>Zakończono {entry.resolvedAt}</div>
+                          <div style={{ fontFamily: 'var(--font-ui)', fontWeight: 700, fontSize: 14.5, color: 'var(--text-strong)' }}>
+                            {entry.customerName || `Zgłoszenie ${entry.ticketCode}`}
+                          </div>
+                          <div style={{ fontFamily: 'var(--font-ui)', fontSize: 13, color: 'var(--text-muted)' }}>Zakończono {formatTime(entry.resolvedAt)}</div>
                         </div>
                       </div>
-                      <StatusPill tone={entry.status === 'done' ? 'success' : 'danger'}>
-                        {entry.status === 'done' ? 'OBSŁUŻONO' : 'NIE ZGŁOSIŁ SIĘ'}
+                      <StatusPill tone={entry.outcome === 'done' ? 'success' : 'danger'}>
+                        {entry.outcome === 'done' ? 'OBSŁUŻONO' : 'NIE ZGŁOSIŁ SIĘ'}
                       </StatusPill>
                     </li>
                   ))}

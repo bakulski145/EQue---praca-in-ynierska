@@ -1,51 +1,8 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
+import { api } from '../lib/api';
+import type { TabletResponse, UserResponse, LocationResponse } from '../lib/apiTypes';
 
-interface Device {
-  id: string;
-  name: string;
-  locationId: string;
-  active?: boolean;
-}
-
-interface UserData {
-  id: string;
-  fullName: string;
-  systemRole?: 'Operator' | 'Admin';
-  active?: boolean;
-}
-
-interface Location {
-  id: string;
-  name: string;
-  userIds: string[];
-  active?: boolean;
-}
-
-/* ── helpers ─────────────────────────────────────────── */
-
-function readJSON<T>(key: string, fallback: T): T {
-  const saved = localStorage.getItem(key);
-  if (!saved) return fallback;
-  try { return JSON.parse(saved) as T; } catch { return fallback; }
-}
-
-/* same seed data the Tablety / Użytkownicy / Lokalizacje tabs fall back to
-   on first run — keeps the dashboard consistent before those tabs are visited */
-const DEFAULT_DEVICES: Device[] = [
-  { id: 'dev1', name: 'Tablet Wejściowy', locationId: 'loc1', active: true },
-  { id: 'dev2', name: 'Tablet Rejestracja', locationId: 'loc2', active: true },
-  { id: 'dev3', name: 'Kiosk Kardiologia', locationId: 'loc3', active: true },
-];
-const DEFAULT_USERS: UserData[] = [
-  { id: 'usr1', fullName: 'Jan Kowalski', systemRole: 'Operator', active: true },
-  { id: 'usr2', fullName: 'Anna Nowak', systemRole: 'Operator', active: true },
-  { id: 'usr3', fullName: 'Piotr Wiśniewski', systemRole: 'Admin', active: true },
-];
-const DEFAULT_LOCATIONS: Location[] = [
-  { id: 'loc1', name: 'Hol Główny', userIds: ['usr1', 'usr2'], active: true },
-  { id: 'loc2', name: 'Okienko Rejestracji 1', userIds: ['usr2'], active: true },
-  { id: 'loc3', name: 'Gabinet Kardiologiczny 12', userIds: ['usr1', 'usr3'], active: true },
-];
+const POLL_INTERVAL_MS = 10000;
 
 /* ── sub-components ───────────────────────────────────── */
 
@@ -151,18 +108,42 @@ const ICON = {
 /* ── main component ───────────────────────────────────── */
 
 export default function AdminHome({ userName }: { userName?: string }) {
-  const [devices] = useState<Device[]>(() => readJSON('eque_devices', DEFAULT_DEVICES));
-  const [users] = useState<UserData[]>(() => readJSON('eque_users', DEFAULT_USERS));
-  const [locations] = useState<Location[]>(() => readJSON('eque_locations', DEFAULT_LOCATIONS));
+  const [devices, setDevices] = useState<TabletResponse[]>([]);
+  const [users, setUsers] = useState<UserResponse[]>([]);
+  const [locations, setLocations] = useState<LocationResponse[]>([]);
 
-  const activeDevices = useMemo(() => devices.filter(d => d.active ?? true), [devices]);
-  const activeUsers = useMemo(() => users.filter(u => u.active ?? true), [users]);
-  const activeLocations = useMemo(() => locations.filter(l => l.active ?? true), [locations]);
+  const refetch = useCallback(async () => {
+    try {
+      const [d, u, l] = await Promise.all([
+        api.get<TabletResponse[]>('/admin/tablets'),
+        api.get<UserResponse[]>('/admin/users'),
+        api.get<LocationResponse[]>('/admin/locations'),
+      ]);
+      setDevices(d);
+      setUsers(u);
+      setLocations(l);
+    } catch {
+      // zachowaj ostatnio znane dane — kolejny poll spróbuje ponownie
+    }
+  }, []);
 
-  /* simulated live snapshot — refreshes every 8s, like the rest of the app */
-  const [onlineNow, setOnlineNow] = useState(() =>
-    Math.round(activeDevices.length * (0.45 + Math.random() * 0.45))
-  );
+  useEffect(() => {
+    refetch();
+    const id = setInterval(refetch, POLL_INTERVAL_MS);
+    return () => clearInterval(id);
+  }, [refetch]);
+
+  const activeDevices = useMemo(() => devices.filter(d => d.is_active), [devices]);
+  const activeUsers = useMemo(() => users.filter(u => u.is_active), [users]);
+  const activeLocations = useMemo(() => locations.filter(l => l.is_active), [locations]);
+
+  /* Prawdziwe "online teraz" wymaga heartbeatu (last_seen_at), którego backend
+     jeszcze nigdzie nie zapisuje — `online` z API zawsze wróci false, więc
+     liczba zostaje przybliżona lokalnie do czasu aż to się zmieni. */
+  const [onlineNow, setOnlineNow] = useState(0);
+  useEffect(() => {
+    setOnlineNow(Math.round(activeDevices.length * (0.45 + Math.random() * 0.45)));
+  }, [activeDevices.length]);
   useEffect(() => {
     const id = setInterval(() => {
       setOnlineNow(Math.round(activeDevices.length * (0.45 + Math.random() * 0.45)));
@@ -172,19 +153,17 @@ export default function AdminHome({ userName }: { userName?: string }) {
 
   const issues = useMemo(() => {
     const list: string[] = [];
-    /* deactivated tablets are intentionally unassigned (cascade clears their
-       location on deactivation) — only flag active ones missing config */
     const unnamedDevices = activeDevices.filter(d => !d.name).length;
-    const unassignedDevices = activeDevices.filter(d => !d.locationId).length;
-    const tabletlessActiveLocations = activeLocations.filter(l => !devices.some(d => d.locationId === l.id)).length;
-    const deactivatedUsers = users.filter(u => !(u.active ?? true)).length;
+    const unassignedDevices = activeDevices.filter(d => !d.location_id).length;
+    const tabletlessActiveLocations = activeLocations.filter(l => !l.tablet).length;
+    const deactivatedUsers = users.filter(u => !u.is_active).length;
 
     if (unnamedDevices > 0) list.push(`${unnamedDevices} ${unnamedDevices === 1 ? 'tablet bez nazwy' : 'tabletów bez nazwy'}`);
     if (unassignedDevices > 0) list.push(`${unassignedDevices} ${unassignedDevices === 1 ? 'tablet bez lokalizacji' : 'tabletów bez przypisanej lokalizacji'}`);
     if (tabletlessActiveLocations > 0) list.push(`${tabletlessActiveLocations} ${tabletlessActiveLocations === 1 ? 'aktywna lokalizacja bez tabletu' : 'aktywnych lokalizacji bez tabletu'}`);
     if (deactivatedUsers > 0) list.push(`${deactivatedUsers} ${deactivatedUsers === 1 ? 'dezaktywowane konto' : 'dezaktywowanych kont'}`);
     return list;
-  }, [devices, activeDevices, activeLocations, users]);
+  }, [activeDevices, activeLocations, users]);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
@@ -210,10 +189,9 @@ export default function AdminHome({ userName }: { userName?: string }) {
               <p style={{ fontFamily: 'var(--font-ui)', fontSize: 14, color: 'var(--text-muted)', margin: 0 }}>Brak dodanych lokalizacji.</p>
             )}
             {locations.map((loc, i) => {
-              const tablet = devices.find(d => d.locationId === loc.id);
-              const tabletLabel = tablet ? (tablet.name || 'Tablet bez nazwy') : 'Brak tabletu';
-              const userCount = (loc.userIds ?? []).length;
-              const active = loc.active ?? true;
+              const tabletLabel = loc.tablet ? (loc.tablet.name || 'Tablet bez nazwy') : 'Brak tabletu';
+              const userCount = loc.user_ids.length;
+              const active = loc.is_active;
               return (
                 <div key={loc.id} style={{
                   display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,

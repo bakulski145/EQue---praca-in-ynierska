@@ -1,3 +1,4 @@
+import os
 import uuid
 import random
 import string
@@ -24,7 +25,7 @@ from schemas.api_schemas import (
 
 logger = logging.getLogger(__name__)
 
-REDIS_URL = "redis://localhost:6379"
+REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
 
 
 async def heartbeat_sweeper(app: FastAPI):
@@ -472,6 +473,7 @@ async def get_all_tablets(
 @app.post("/api/v1/admin/tablets", response_model=TabletResponse, status_code=201, tags=["Admin — Tablets"])
 async def create_tablet(
     data: TabletCreate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
@@ -504,6 +506,7 @@ async def create_tablet(
 async def update_tablet(
     tablet_id: int,
     data: TabletUpdate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
@@ -540,6 +543,7 @@ async def update_tablet(
 @app.delete("/api/v1/admin/tablets/{tablet_id}", tags=["Admin — Tablets"])
 async def delete_tablet(
     tablet_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
@@ -558,6 +562,7 @@ async def delete_tablet(
 @app.post("/api/v1/admin/tablets/{tablet_id}/activate", response_model=TabletResponse, tags=["Admin — Tablets"])
 async def activate_tablet(
     tablet_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
@@ -579,6 +584,7 @@ async def activate_tablet(
 @app.post("/api/v1/admin/tablets/{tablet_id}/deactivate", response_model=TabletResponse, tags=["Admin — Tablets"])
 async def deactivate_tablet(
     tablet_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
@@ -618,6 +624,7 @@ async def get_all_locations(
 @app.post("/api/v1/admin/locations", response_model=LocationResponse, status_code=201, tags=["Admin — Locations"])
 async def create_location(
     data: LocationCreate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
@@ -644,6 +651,7 @@ async def create_location(
 async def update_location(
     location_id: int,
     data: LocationUpdate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
@@ -703,6 +711,7 @@ async def update_location(
 @app.delete("/api/v1/admin/locations/{location_id}", tags=["Admin — Locations"])
 async def delete_location(
     location_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
@@ -728,6 +737,7 @@ async def delete_location(
 @app.post("/api/v1/admin/locations/{location_id}/activate", response_model=LocationResponse, tags=["Admin — Locations"])
 async def activate_location(
     location_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
@@ -748,6 +758,7 @@ async def activate_location(
 @app.post("/api/v1/admin/locations/{location_id}/deactivate", response_model=LocationResponse, tags=["Admin — Locations"])
 async def deactivate_location(
     location_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
@@ -792,6 +803,7 @@ async def get_all_users(
 @app.post("/api/v1/admin/users", response_model=UserResponse, status_code=201, tags=["Admin — Users"])
 async def create_user(
     data: UserCreate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
@@ -836,6 +848,7 @@ async def create_user(
 async def update_user(
     user_id: uuid.UUID,
     data: UserUpdate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
@@ -889,6 +902,7 @@ async def update_user(
 @app.delete("/api/v1/admin/users/{user_id}", tags=["Admin — Users"])
 async def delete_user(
     user_id: uuid.UUID,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
@@ -920,6 +934,7 @@ async def delete_user(
 @app.post("/api/v1/admin/users/{user_id}/activate", response_model=UserResponse, tags=["Admin — Users"])
 async def activate_user(
     user_id: uuid.UUID,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
@@ -941,6 +956,7 @@ async def activate_user(
 @app.post("/api/v1/admin/users/{user_id}/deactivate", response_model=UserResponse, tags=["Admin — Users"])
 async def deactivate_user(
     user_id: uuid.UUID,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):

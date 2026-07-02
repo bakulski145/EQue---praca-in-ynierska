@@ -1,26 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import { api, ApiError } from '../lib/api';
+import type { LocationResponse, TabletResponse, UserResponse } from '../lib/apiTypes';
 
-interface Location {
-  id: string;
-  name: string;
-  description: string;
-  userIds: string[];
-  active: boolean;
-}
-
-interface UserData {
-  id: string;
-  fullName: string;
-  locationIds: string[];
-  active?: boolean;
-}
-
-interface Device {
-  id: string;
-  name: string;
-  locationId: string;
-  active?: boolean;
-}
+const POLL_INTERVAL_MS = 10000;
 
 /* ── helpers ─────────────────────────────────────────── */
 
@@ -153,116 +135,119 @@ const labelStyle: React.CSSProperties = {
   color: 'var(--text-body)',
 };
 
+/* ── local edit-draft shape ────────────────────────────── */
+
+interface LocationDraft {
+  id: number;
+  name: string;
+  description: string;
+  is_active: boolean;
+  tablet_id: number | null;
+  user_ids: string[];
+}
+
 /* ── main component ───────────────────────────────────── */
 
 export default function AdminLocations({ addOpen = false, onAddClose, searchQuery = '' }: { addOpen?: boolean; onAddClose?: () => void; searchQuery?: string }) {
-  const [devices, setDevices] = useState<Device[]>(() => {
-    const saved = localStorage.getItem('eque_devices');
-    return saved ? JSON.parse(saved) : [];
-  });
+  const [locations, setLocations] = useState<LocationResponse[]>([]);
+  const [tablets, setTablets] = useState<TabletResponse[]>([]);
+  const [users, setUsers] = useState<UserResponse[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const [users, setUsers] = useState<UserData[]>(() => {
-    const savedUsers = localStorage.getItem('eque_users');
-    if (savedUsers) return JSON.parse(savedUsers);
-    return [
-      { id: 'usr1', fullName: 'Jan Kowalski', locationIds: ['loc1', 'loc3'] },
-      { id: 'usr2', fullName: 'Anna Nowak', locationIds: ['loc1', 'loc2'] },
-      { id: 'usr3', fullName: 'Piotr Wiśniewski', locationIds: ['loc3'] },
-    ];
-  });
+  const refetch = useCallback(async () => {
+    try {
+      const [l, t, u] = await Promise.all([
+        api.get<LocationResponse[]>('/admin/locations'),
+        api.get<TabletResponse[]>('/admin/tablets'),
+        api.get<UserResponse[]>('/admin/users'),
+      ]);
+      setLocations(l);
+      setTablets(t);
+      setUsers(u);
+    } catch {
+      // zachowaj ostatnio znane dane — kolejny poll spróbuje ponownie
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
-  const [locations, setLocations] = useState<Location[]>(() => {
-    const saved = localStorage.getItem('eque_locations');
-    const parsed: Location[] = saved ? JSON.parse(saved) : [
-      { id: 'loc1', name: 'Hol Główny', description: 'Parter, przy wejściu A', userIds: ['usr1', 'usr2'], active: true },
-      { id: 'loc2', name: 'Okienko Rejestracji 1', description: 'Parter, skrzydło wschodnie', userIds: ['usr2'], active: true },
-      { id: 'loc3', name: 'Gabinet Kardiologiczny 12', description: 'Piętro 2', userIds: ['usr1', 'usr3'], active: true },
-    ];
-    return parsed.map(l => ({ ...l, active: l.active ?? true }));
-  });
+  useEffect(() => {
+    refetch();
+    const id = setInterval(refetch, POLL_INTERVAL_MS);
+    return () => clearInterval(id);
+  }, [refetch]);
 
   const [newName, setNewName] = useState('');
   const [newDescription, setNewDescription] = useState('');
 
-  const [editingLocation, setEditingLocation] = useState<Location | null>(null);
-  const [editingTabletId, setEditingTabletId] = useState<string>('');
+  const [editingLocation, setEditingLocation] = useState<LocationDraft | null>(null);
 
-  const saveLocations = (updated: Location[]) => {
-    setLocations(updated);
-    localStorage.setItem('eque_locations', JSON.stringify(updated));
-  };
-  const saveUsers = (updated: UserData[]) => {
-    setUsers(updated);
-    localStorage.setItem('eque_users', JSON.stringify(updated));
-  };
-  const saveDevices = (updated: Device[]) => {
-    setDevices(updated);
-    localStorage.setItem('eque_devices', JSON.stringify(updated));
+  const openEditLocation = (location: LocationResponse) => {
+    setEditingLocation({
+      id: location.id,
+      name: location.name,
+      description: location.description ?? '',
+      is_active: location.is_active,
+      tablet_id: location.tablet?.id ?? null,
+      user_ids: [...location.user_ids],
+    });
   };
 
-  const openEditLocation = (location: Location) => {
-    setEditingLocation({ ...location });
-    setEditingTabletId(devices.find(d => d.locationId === location.id)?.id ?? '');
-  };
-
-  const handleToggleActive = (location: Location) => {
-    if (location.active) {
-      if (!window.confirm(`Czy na pewno chcesz dezaktywować lokalizację "${location.name}"? Przypisany tablet i użytkownicy zostaną od niej odłączeni.`)) return;
-      saveLocations(locations.map(l => l.id === location.id ? { ...l, active: false, userIds: [] } : l));
-      saveUsers(users.map(u => ({ ...u, locationIds: (u.locationIds ?? []).filter(id => id !== location.id) })));
-      saveDevices(devices.map(d => d.locationId === location.id ? { ...d, locationId: '' } : d));
-    } else {
-      saveLocations(locations.map(l => l.id === location.id ? { ...l, active: true } : l));
+  const handleToggleActive = async (location: LocationResponse) => {
+    if (location.is_active && !window.confirm(`Czy na pewno chcesz dezaktywować lokalizację "${location.name}"? Przypisany tablet i użytkownicy zostaną od niej odłączeni.`)) return;
+    try {
+      const updated = await api.post<LocationResponse>(`/admin/locations/${location.id}/${location.is_active ? 'deactivate' : 'activate'}`);
+      setLocations(prev => prev.map(l => l.id === updated.id ? updated : l));
+    } catch (err) {
+      window.alert(err instanceof ApiError ? err.message : 'Nie udało się zmienić statusu lokalizacji.');
     }
   };
 
-  const handleAddLocation = () => {
+  const handleAddLocation = async () => {
     if (!newName.trim()) return;
-    const newLocation: Location = {
-      id: Date.now().toString(),
-      name: newName,
-      description: newDescription.trim() ? newDescription : 'Brak opisu',
-      userIds: [],
-      active: true,
-    };
-    saveLocations([...locations, newLocation]);
-    onAddClose?.();
-    setNewName('');
-    setNewDescription('');
+    try {
+      const created = await api.post<LocationResponse>('/admin/locations', {
+        name: newName.trim(),
+        description: newDescription.trim() || null,
+      });
+      setLocations(prev => [...prev, created]);
+      onAddClose?.();
+      setNewName('');
+      setNewDescription('');
+    } catch (err) {
+      window.alert(err instanceof ApiError ? err.message : 'Nie udało się dodać lokalizacji.');
+    }
   };
 
-  const handleDeleteLocation = () => {
+  const handleDeleteLocation = async () => {
     if (!editingLocation) return;
     if (!window.confirm(`Czy na pewno chcesz usunąć lokalizację "${editingLocation.name}"? Tej operacji nie można cofnąć.`)) return;
-
-    saveLocations(locations.filter(l => l.id !== editingLocation.id));
-    saveUsers(users.map(u => ({ ...u, locationIds: (u.locationIds || []).filter(id => id !== editingLocation.id) })));
-    saveDevices(devices.map(d => d.locationId === editingLocation.id ? { ...d, locationId: '' } : d));
-    setEditingLocation(null);
+    try {
+      await api.del(`/admin/locations/${editingLocation.id}`);
+      setLocations(prev => prev.filter(l => l.id !== editingLocation.id));
+      setEditingLocation(null);
+      refetch(); // odśwież tablety — jeden mógł zostać odłączony kaskadowo
+    } catch (err) {
+      window.alert(err instanceof ApiError ? err.message : 'Nie udało się usunąć lokalizacji.');
+    }
   };
 
-  const handleSaveEdit = () => {
+  const handleSaveEdit = async () => {
     if (!editingLocation) return;
-
-    saveLocations(locations.map(l => l.id === editingLocation.id ? editingLocation : l));
-
-    saveUsers(users.map(u => {
-      const filteredLocs = (u.locationIds || []).filter(id => id !== editingLocation.id);
-      if (editingLocation.userIds.includes(u.id)) filteredLocs.push(editingLocation.id);
-      return { ...u, locationIds: Array.from(new Set(filteredLocs)) };
-    }));
-
-    /* only one tablet may belong to a location */
-    saveDevices(devices.map(d => {
-      if (d.id === editingTabletId) return { ...d, locationId: editingLocation.id };
-      if (d.locationId === editingLocation.id) return { ...d, locationId: '' };
-      return d;
-    }));
-
-    setEditingLocation(null);
+    try {
+      const updated = await api.put<LocationResponse>(`/admin/locations/${editingLocation.id}`, {
+        name: editingLocation.name,
+        description: editingLocation.description,
+        tablet_id: editingLocation.tablet_id,
+        user_ids: editingLocation.user_ids,
+      });
+      setLocations(prev => prev.map(l => l.id === updated.id ? updated : l));
+      setEditingLocation(null);
+      refetch(); // odśwież tablety — poprzedni najemca mógł zostać odłączony
+    } catch (err) {
+      window.alert(err instanceof ApiError ? err.message : 'Nie udało się zapisać zmian.');
+    }
   };
-
-  const tabletForLocation = (locId: string) => devices.find(d => d.locationId === locId);
 
   const visibleLocations = searchQuery.trim()
     ? locations.filter(l => l.name.toLowerCase().includes(searchQuery.trim().toLowerCase()))
@@ -283,15 +268,15 @@ export default function AdminLocations({ addOpen = false, onAddClose, searchQuer
           <span>Lokalizacja</span><span>Tablet</span><span>Użytkownicy</span><span>Status</span><span></span>
         </div>
 
-        {visibleLocations.length === 0 && (
+        {!loading && visibleLocations.length === 0 && (
           <div style={{ padding: 36, textAlign: 'center', fontFamily: 'var(--font-ui)', color: 'var(--text-muted)', fontSize: 15 }}>
             {locations.length === 0 ? 'Brak dodanych lokalizacji.' : 'Brak lokalizacji pasujących do wyszukiwania.'}
           </div>
         )}
 
         {visibleLocations.map((location, i) => {
-          const tablet = tabletForLocation(location.id);
-          const userCount = (location.userIds ?? []).length;
+          const tablet = location.tablet;
+          const userCount = location.user_ids.length;
 
           return (
             <div
@@ -299,7 +284,7 @@ export default function AdminLocations({ addOpen = false, onAddClose, searchQuer
               style={{
                 display: 'grid', gridTemplateColumns: '2fr 1.3fr 1.3fr 1fr 96px',
                 gap: 12, alignItems: 'center', padding: '17px 24px',
-                background: location.active ? 'transparent' : 'var(--surface-sunken)',
+                background: location.is_active ? 'transparent' : 'var(--surface-sunken)',
                 borderBottom: i < visibleLocations.length - 1 ? '1px solid var(--border-subtle)' : 'none',
                 transition: 'background var(--dur-base) var(--ease-out)',
               }}
@@ -308,9 +293,9 @@ export default function AdminLocations({ addOpen = false, onAddClose, searchQuer
               <div style={{ display: 'flex', alignItems: 'center', gap: 14, minWidth: 0 }}>
                 <div style={{
                   width: 44, height: 44, borderRadius: 'var(--radius-md)', flexShrink: 0,
-                  background: location.active ? 'var(--brand-subtle)' : 'var(--surface-card)',
+                  background: location.is_active ? 'var(--brand-subtle)' : 'var(--surface-card)',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  color: location.active ? 'var(--text-brand)' : 'var(--text-faint)',
+                  color: location.is_active ? 'var(--text-brand)' : 'var(--text-faint)',
                 }}>
                   <LocationIcon size={20} />
                 </div>
@@ -319,7 +304,7 @@ export default function AdminLocations({ addOpen = false, onAddClose, searchQuer
                     {location.name}
                   </div>
                   <div style={{ fontFamily: 'var(--font-ui)', fontSize: 13, color: 'var(--text-muted)', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {location.description}
+                    {location.description || 'Brak opisu'}
                   </div>
                 </div>
               </div>
@@ -350,17 +335,17 @@ export default function AdminLocations({ addOpen = false, onAddClose, searchQuer
 
               {/* Status */}
               <div>
-                <StatusBadge tone={location.active ? 'success' : 'neutral'}>
-                  {location.active ? 'Aktywna' : 'Dezaktywowana'}
+                <StatusBadge tone={location.is_active ? 'success' : 'neutral'}>
+                  {location.is_active ? 'Aktywna' : 'Dezaktywowana'}
                 </StatusBadge>
               </div>
 
               {/* Actions: deactivate switch + edit */}
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6 }}>
                 <Switch
-                  checked={location.active}
+                  checked={location.is_active}
                   onChange={() => handleToggleActive(location)}
-                  ariaLabel={location.active ? `Dezaktywuj lokalizację ${location.name}` : `Aktywuj lokalizację ${location.name}`}
+                  ariaLabel={location.is_active ? `Dezaktywuj lokalizację ${location.name}` : `Aktywuj lokalizację ${location.name}`}
                 />
                 <button
                   onClick={() => openEditLocation(location)}
@@ -428,9 +413,9 @@ export default function AdminLocations({ addOpen = false, onAddClose, searchQuer
             <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '16px 18px', background: 'var(--surface-sunken)', borderRadius: 'var(--radius-md)' }}>
               <div style={{
                 width: 48, height: 48, borderRadius: 'var(--radius-md)', flexShrink: 0,
-                background: editingLocation.active ? 'var(--brand-subtle)' : 'var(--surface-card)',
+                background: editingLocation.is_active ? 'var(--brand-subtle)' : 'var(--surface-card)',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
-                color: editingLocation.active ? 'var(--text-brand)' : 'var(--text-faint)',
+                color: editingLocation.is_active ? 'var(--text-brand)' : 'var(--text-faint)',
               }}>
                 <LocationIcon size={22} />
               </div>
@@ -439,8 +424,8 @@ export default function AdminLocations({ addOpen = false, onAddClose, searchQuer
                   {editingLocation.name || '—'}
                 </div>
                 <div style={{ marginTop: 5 }}>
-                  <StatusBadge tone={editingLocation.active ? 'success' : 'neutral'}>
-                    {editingLocation.active ? 'Aktywna' : 'Dezaktywowana'}
+                  <StatusBadge tone={editingLocation.is_active ? 'success' : 'neutral'}>
+                    {editingLocation.is_active ? 'Aktywna' : 'Dezaktywowana'}
                   </StatusBadge>
                 </div>
               </div>
@@ -461,18 +446,19 @@ export default function AdminLocations({ addOpen = false, onAddClose, searchQuer
             </Field>
 
             <Field label="Przypisany tablet">
-              {!editingLocation.active ? (
+              {!editingLocation.is_active ? (
                 <p style={{ fontFamily: 'var(--font-ui)', fontSize: 13, color: 'var(--text-faint)', margin: 0 }}>
                   Aktywuj lokalizację, aby przypisać tablet.
                 </p>
               ) : (
-                <select style={inputStyle} value={editingTabletId} onChange={e => setEditingTabletId(e.target.value)}
+                <select style={inputStyle} value={editingLocation.tablet_id ?? ''}
+                  onChange={e => setEditingLocation({ ...editingLocation, tablet_id: e.target.value ? Number(e.target.value) : null })}
                   onFocus={e => { e.currentTarget.style.borderColor = 'var(--focus-ring)'; }}
                   onBlur={e => { e.currentTarget.style.borderColor = 'var(--border-default)'; }}>
                   <option value="">Brak przypisanego tabletu</option>
-                  {devices.filter(d => d.active ?? true).map(d => (
-                    <option key={d.id} value={d.id}>
-                      {d.name || 'Tablet bez nazwy'}{d.locationId && d.locationId !== editingLocation.id ? ' (przypisany gdzie indziej)' : ''}
+                  {tablets.filter(t => t.is_active).map(t => (
+                    <option key={t.id} value={t.id}>
+                      {t.name || 'Tablet bez nazwy'}{t.location_id && t.location_id !== editingLocation.id ? ' (przypisany gdzie indziej)' : ''}
                     </option>
                   ))}
                 </select>
@@ -480,12 +466,12 @@ export default function AdminLocations({ addOpen = false, onAddClose, searchQuer
             </Field>
 
             <Field label="Przypisani użytkownicy">
-              {!editingLocation.active ? (
+              {!editingLocation.is_active ? (
                 <p style={{ fontFamily: 'var(--font-ui)', fontSize: 13, color: 'var(--text-faint)', margin: 0 }}>
                   Aktywuj lokalizację, aby przypisać użytkowników.
                 </p>
               ) : (() => {
-                const assignableUsers = users.filter(u => u.active ?? true);
+                const assignableUsers = users.filter(u => u.is_active && u.role === 'OPERATOR');
                 return (
                   <div style={{ border: '1.5px solid var(--border-default)', borderRadius: 'var(--radius-md)', overflow: 'hidden' }}>
                     {assignableUsers.map((user, i) => (
@@ -493,18 +479,18 @@ export default function AdminLocations({ addOpen = false, onAddClose, searchQuer
                         display: 'flex', alignItems: 'center', gap: 12,
                         padding: '12px 16px', cursor: 'pointer',
                         borderBottom: i < assignableUsers.length - 1 ? '1px solid var(--border-subtle)' : 'none',
-                        background: editingLocation.userIds.includes(user.id) ? 'var(--brand-subtle)' : 'transparent',
+                        background: editingLocation.user_ids.includes(user.id) ? 'var(--brand-subtle)' : 'transparent',
                       }}>
                         <input type="checkbox"
-                          checked={editingLocation.userIds.includes(user.id)}
+                          checked={editingLocation.user_ids.includes(user.id)}
                           onChange={e => {
                             const ids = e.target.checked
-                              ? [...editingLocation.userIds, user.id]
-                              : editingLocation.userIds.filter(id => id !== user.id);
-                            setEditingLocation({ ...editingLocation, userIds: ids });
+                              ? [...editingLocation.user_ids, user.id]
+                              : editingLocation.user_ids.filter(id => id !== user.id);
+                            setEditingLocation({ ...editingLocation, user_ids: ids });
                           }}
                           style={{ accentColor: 'var(--brand)', width: 16, height: 16 }} />
-                        <span style={{ fontFamily: 'var(--font-ui)', fontSize: 14.5, fontWeight: 600, color: 'var(--text-body)' }}>{user.fullName}</span>
+                        <span style={{ fontFamily: 'var(--font-ui)', fontSize: 14.5, fontWeight: 600, color: 'var(--text-body)' }}>{user.full_name}</span>
                       </label>
                     ))}
                     {assignableUsers.length === 0 && (

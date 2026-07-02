@@ -1,16 +1,12 @@
-import { useMemo, useState } from 'react';
-import { seedLocationQueue } from '../lib/queueSim';
+import { useState, useEffect, useCallback } from 'react';
+import { api } from '../lib/api';
+import type { LocationResponse, QueueResponse } from '../lib/apiTypes';
+import { getActivity } from '../lib/ticketActivity';
 
-interface Location {
-  id: string;
-  name: string;
-  active?: boolean;
-}
+const POLL_INTERVAL_MS = 10000;
 
-interface UserData {
-  id: string;
-  fullName: string;
-  locationIds: string[];
+function minutesSince(iso: string): number {
+  return Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
 }
 
 /* ── sub-components (mirrors AdminHome's dashboard language) ─── */
@@ -113,38 +109,46 @@ const ICON = {
 
 /* ── main component ───────────────────────────────────── */
 
-export default function UserHome({ userName }: { userName?: string }) {
-  const [allLocations] = useState<Location[]>(() => {
-    const saved = localStorage.getItem('eque_locations');
-    return saved ? JSON.parse(saved) : [];
-  });
-  const [allUsers] = useState<UserData[]>(() => {
-    const saved = localStorage.getItem('eque_users');
-    return saved ? JSON.parse(saved) : [];
-  });
+export default function UserHome({ userName, locationIds }: { userName?: string; locationIds: number[] }) {
+  const [myLocations, setMyLocations] = useState<LocationResponse[]>([]);
+  const [queues, setQueues] = useState<Record<number, QueueResponse>>({});
+  const [, bumpTick] = useState(0);
 
-  const currentUser = allUsers.find(u => u.fullName === userName);
-  const assignedLocationIds = currentUser?.locationIds || [];
-  const myLocations = allLocations.filter(l => assignedLocationIds.includes(l.id));
-  const myActiveLocations = myLocations.filter(l => l.active ?? true);
+  const refetch = useCallback(async () => {
+    try {
+      const locs = (await api.get<LocationResponse[]>('/admin/locations')).filter(l => locationIds.includes(l.id));
+      setMyLocations(locs);
+      const active = locs.filter(l => l.is_active);
+      const entries = await Promise.all(active.map(async l => {
+        const q = await api.get<QueueResponse>(`/admin/locations/${l.id}/queue`);
+        return [l.id, q] as const;
+      }));
+      setQueues(Object.fromEntries(entries));
+    } catch {
+      // zachowaj ostatnio znane dane — kolejny poll spróbuje ponownie
+    }
+    bumpTick(n => n + 1); // odśwież też liczniki z ticketActivity (czeka X min, itp.)
+  }, [locationIds]);
 
-  /* deterministic simulated snapshot — same seed the "Kolejka na żywo" tab uses */
-  const snapshots = useMemo(
-    () => Object.fromEntries(myActiveLocations.map(l => [l.id, seedLocationQueue(l.id)])),
-    [myActiveLocations.map(l => l.id).join(',')]
-  );
+  useEffect(() => {
+    refetch();
+    const id = setInterval(refetch, POLL_INTERVAL_MS);
+    return () => clearInterval(id);
+  }, [refetch]);
 
-  const totalWaiting = myActiveLocations.reduce((sum, l) => sum + snapshots[l.id].waiting.length, 0);
-  const totalServingNow = myActiveLocations.reduce((sum, l) => sum + (snapshots[l.id].serving ? 1 : 0), 0);
-  const totalDoneToday = myActiveLocations.reduce((sum, l) => sum + snapshots[l.id].completed.filter(e => e.status === 'done').length, 0);
-  const totalNoShowToday = myActiveLocations.reduce((sum, l) => sum + snapshots[l.id].completed.filter(e => e.status === 'noshow').length, 0);
+  const myActiveLocations = myLocations.filter(l => l.is_active);
 
-  const upcoming = useMemo(() => {
-    return myActiveLocations
-      .flatMap(l => snapshots[l.id].waiting.map(entry => ({ ...entry, locationName: l.name })))
-      .sort((a, b) => a.etaMin - b.etaMin)
-      .slice(0, 5);
-  }, [myActiveLocations, snapshots]);
+  const totalWaiting = myActiveLocations.reduce((sum, l) => sum + (queues[l.id]?.waiting.length ?? 0), 0);
+  const totalServingNow = myActiveLocations.reduce((sum, l) => sum + (queues[l.id]?.serving ? 1 : 0), 0);
+
+  const activity = getActivity().filter(a => locationIds.includes(a.locationId));
+  const totalDoneToday = activity.filter(a => a.outcome === 'done').length;
+  const totalNoShowToday = activity.filter(a => a.outcome === 'noshow').length;
+
+  const upcoming = myActiveLocations
+    .flatMap(l => (queues[l.id]?.waiting ?? []).map(entry => ({ ...entry, locationName: l.name })))
+    .sort((a, b) => minutesSince(b.joined_at) - minutesSince(a.joined_at))
+    .slice(0, 5);
 
   if (myLocations.length === 0) {
     return (
@@ -184,8 +188,8 @@ export default function UserHome({ userName }: { userName?: string }) {
         <CardShell title="Twoje lokalizacje — przegląd" subtitle="Stan kolejki w każdej przypisanej lokalizacji">
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
             {myLocations.map((loc, i) => {
-              const active = loc.active ?? true;
-              const snap = active ? snapshots[loc.id] : null;
+              const active = loc.is_active;
+              const q = active ? queues[loc.id] : undefined;
               return (
                 <div key={loc.id} style={{
                   display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
@@ -199,12 +203,12 @@ export default function UserHome({ userName }: { userName?: string }) {
                     </span>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
-                    {snap && (
+                    {q && (
                       <span style={{
                         fontFamily: 'var(--font-ui)', fontSize: 12.5, color: 'var(--text-faint)',
                         whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 220,
                       }}>
-                        Teraz: {snap.serving ? snap.serving.code : '—'} · {snap.waiting.length} oczekujących
+                        Teraz: {q.serving ? q.serving.ticket_code : '—'} · {q.waiting.length} oczekujących
                       </span>
                     )}
                     <MiniBadge tone={active ? 'success' : 'neutral'}>{active ? 'Aktywna' : 'Dezaktywowana'}</MiniBadge>
@@ -216,7 +220,7 @@ export default function UserHome({ userName }: { userName?: string }) {
         </CardShell>
 
         {/* Upcoming across locations */}
-        <CardShell title="Najbliżsi w kolejce" subtitle="Kolejni klienci we wszystkich Twoich lokalizacjach">
+        <CardShell title="Najdłużej czekający" subtitle="Kolejni klienci we wszystkich Twoich lokalizacjach">
           {upcoming.length === 0 ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 4px' }}>
               {ICON.checkBig}
@@ -230,14 +234,14 @@ export default function UserHome({ userName }: { userName?: string }) {
                 <div key={`${entry.locationName}-${entry.id}`} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '9px 10px', background: 'var(--surface-sunken)', borderRadius: 'var(--radius-md)' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
                     <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 15, color: 'var(--text-strong)', fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>
-                      {entry.code}
+                      {entry.ticket_code}
                     </span>
                     <span style={{ fontFamily: 'var(--font-ui)', fontSize: 13, color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                       {entry.locationName}
                     </span>
                   </div>
                   <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontFamily: 'var(--font-ui)', fontSize: 13, color: 'var(--text-faint)', flexShrink: 0 }}>
-                    {ICON.clock} ~{entry.etaMin} min
+                    {ICON.clock} czeka {minutesSince(entry.joined_at)} min
                   </span>
                 </div>
               ))}
