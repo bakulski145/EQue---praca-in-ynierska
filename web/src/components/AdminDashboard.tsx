@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { api, ApiError } from '../lib/api';
 import type { TabletResponse, LocationResponse } from '../lib/apiTypes';
+import { confirmDialog, alertDialog } from '../lib/dialogs';
+import Select from './ui/Select';
 
 type SimStatus = 'online' | 'offline';
 
@@ -239,12 +241,18 @@ export default function AdminDashboard({ addOpen = false, onAddClose, searchQuer
   const openEdit = (device: TabletResponse) => setEditingDevice({ ...device });
 
   const handleToggleActive = async (device: TabletResponse) => {
-    if (device.is_active && !window.confirm(`Czy na pewno chcesz dezaktywować tablet "${device.name || 'bez nazwy'}"? Zostanie odłączony od przypisanej lokalizacji.`)) return;
+    if (device.is_active) {
+      const ok = await confirmDialog(
+        `Czy na pewno chcesz dezaktywować tablet "${device.name || 'bez nazwy'}"? Zostanie odłączony od przypisanej lokalizacji.`,
+        { title: 'Dezaktywuj tablet', tone: 'danger', confirmLabel: 'Dezaktywuj' }
+      );
+      if (!ok) return;
+    }
     try {
       const updated = await api.post<TabletResponse>(`/admin/tablets/${device.id}/${device.is_active ? 'deactivate' : 'activate'}`);
       setDevices(prev => prev.map(d => d.id === updated.id ? updated : d));
     } catch (err) {
-      window.alert(err instanceof ApiError ? err.message : 'Nie udało się zmienić statusu tabletu.');
+      alertDialog(err instanceof ApiError ? err.message : 'Nie udało się zmienić statusu tabletu.', { title: 'Błąd', tone: 'danger' });
     }
   };
 
@@ -255,7 +263,7 @@ export default function AdminDashboard({ addOpen = false, onAddClose, searchQuer
       setSim(prev => ({ ...prev, [created.id]: initSim() }));
       onAddClose?.();
     } catch (err) {
-      window.alert(err instanceof ApiError ? err.message : 'Nie udało się dodać tabletu.');
+      alertDialog(err instanceof ApiError ? err.message : 'Nie udało się dodać tabletu.', { title: 'Błąd', tone: 'danger' });
     }
   };
 
@@ -270,19 +278,23 @@ export default function AdminDashboard({ addOpen = false, onAddClose, searchQuer
       setEditingDevice(null);
       refetch(); // odśwież lokalizacje — poprzedni najemca mógł zostać odłączony
     } catch (err) {
-      window.alert(err instanceof ApiError ? err.message : 'Nie udało się zapisać zmian.');
+      alertDialog(err instanceof ApiError ? err.message : 'Nie udało się zapisać zmian.', { title: 'Błąd', tone: 'danger' });
     }
   };
 
   const handleDeleteDevice = async () => {
     if (!editingDevice) return;
-    if (!window.confirm(`Czy na pewno chcesz usunąć tablet "${editingDevice.name || 'bez nazwy'}"?`)) return;
+    const ok = await confirmDialog(
+      `Czy na pewno chcesz usunąć tablet "${editingDevice.name || 'bez nazwy'}"?`,
+      { title: 'Usuń tablet', tone: 'danger', confirmLabel: 'Usuń' }
+    );
+    if (!ok) return;
     try {
       await api.del(`/admin/tablets/${editingDevice.id}`);
       setDevices(prev => prev.filter(d => d.id !== editingDevice.id));
       setEditingDevice(null);
     } catch (err) {
-      window.alert(err instanceof ApiError ? err.message : 'Nie udało się usunąć tabletu.');
+      alertDialog(err instanceof ApiError ? err.message : 'Nie udało się usunąć tabletu.', { title: 'Błąd', tone: 'danger' });
     }
   };
 
@@ -457,24 +469,22 @@ export default function AdminDashboard({ addOpen = false, onAddClose, searchQuer
               </Field>
 
               <Field label="Przypisana lokalizacja">
-                <select
-                  style={inputStyle}
-                  value={editingDevice.location_id ?? ''}
+                <Select
+                  value={editingDevice.location_id !== null ? String(editingDevice.location_id) : ''}
                   disabled={!editingDevice.is_active}
-                  onChange={e => setEditingDevice({ ...editingDevice, location_id: e.target.value ? Number(e.target.value) : null })}
-                  onFocus={e => { e.currentTarget.style.borderColor = 'var(--focus-ring)'; }}
-                  onBlur={e => { e.currentTarget.style.borderColor = 'var(--border-default)'; }}
-                >
-                  <option value="">Nieprzypisany do żadnej lokalizacji</option>
-                  {locations.filter(loc => loc.is_active).map(loc => {
-                    const occupant = devices.find(d => d.location_id === loc.id && d.id !== editingDevice.id);
-                    return (
-                      <option key={loc.id} value={loc.id}>
-                        {loc.name}{occupant ? ` (zastąpi: ${occupant.name || 'tablet bez nazwy'})` : ''}
-                      </option>
-                    );
-                  })}
-                </select>
+                  onChange={v => setEditingDevice({ ...editingDevice, location_id: v ? Number(v) : null })}
+                  placeholder="Nieprzypisany do żadnej lokalizacji"
+                  options={[
+                    { value: '', label: 'Nieprzypisany do żadnej lokalizacji' },
+                    ...locations.filter(loc => loc.is_active).map(loc => {
+                      const occupant = devices.find(d => d.location_id === loc.id && d.id !== editingDevice.id);
+                      return {
+                        value: String(loc.id),
+                        label: `${loc.name}${occupant ? ` (zastąpi: ${occupant.name || 'tablet bez nazwy'})` : ''}`,
+                      };
+                    }),
+                  ]}
+                />
                 {!editingDevice.is_active && (
                   <p style={{ fontFamily: 'var(--font-ui)', fontSize: 12.5, color: 'var(--text-faint)', margin: '6px 0 0' }}>
                     Aktywuj tablet, aby przypisać go do lokalizacji.

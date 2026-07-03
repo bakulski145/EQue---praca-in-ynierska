@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { api, ApiError } from '../lib/api';
 import type { UserResponse, LocationResponse, Role } from '../lib/apiTypes';
+import { confirmDialog, alertDialog } from '../lib/dialogs';
+import Select from './ui/Select';
 
 type OnlineStatus = 'online' | 'away' | 'offline';
 
@@ -283,7 +285,7 @@ export default function AdminUsers({ addOpen: addPanelOpen = false, onAddClose, 
       onAddClose?.();
       resetAddForm();
     } catch (err) {
-      window.alert(err instanceof ApiError ? err.message : 'Nie udało się dodać użytkownika.');
+      alertDialog(err instanceof ApiError ? err.message : 'Nie udało się dodać użytkownika.', { title: 'Błąd', tone: 'danger' });
     }
   };
 
@@ -301,29 +303,35 @@ export default function AdminUsers({ addOpen: addPanelOpen = false, onAddClose, 
       setUsers(prev => prev.map(u => u.id === updated.id ? updated : u));
       setEditUser(null);
     } catch (err) {
-      window.alert(err instanceof ApiError ? err.message : 'Nie udało się zapisać zmian.');
+      alertDialog(err instanceof ApiError ? err.message : 'Nie udało się zapisać zmian.', { title: 'Błąd', tone: 'danger' });
     }
   };
 
   const handleDelete = async () => {
     if (!editUser) return;
-    if (!window.confirm(`Usunąć użytkownika "${editUser.full_name}"?`)) return;
+    if (!(await confirmDialog(`Usunąć użytkownika "${editUser.full_name}"?`, { title: 'Usuń użytkownika', tone: 'danger', confirmLabel: 'Usuń' }))) return;
     try {
       await api.del(`/admin/users/${editUser.id}`);
       setUsers(prev => prev.filter(u => u.id !== editUser.id));
       setEditUser(null);
     } catch (err) {
-      window.alert(err instanceof ApiError ? err.message : 'Nie udało się usunąć użytkownika.');
+      alertDialog(err instanceof ApiError ? err.message : 'Nie udało się usunąć użytkownika.', { title: 'Błąd', tone: 'danger' });
     }
   };
 
   const handleToggleActive = async (user: UserResponse) => {
-    if (user.is_active && !window.confirm(`Czy na pewno chcesz dezaktywować konto "${user.full_name}"? Zostanie odłączone od przypisanych lokalizacji.`)) return;
+    if (user.is_active) {
+      const ok = await confirmDialog(
+        `Czy na pewno chcesz dezaktywować konto "${user.full_name}"? Zostanie odłączone od przypisanych lokalizacji.`,
+        { title: 'Dezaktywuj konto', tone: 'danger', confirmLabel: 'Dezaktywuj' }
+      );
+      if (!ok) return;
+    }
     try {
       const updated = await api.post<UserResponse>(`/admin/users/${user.id}/${user.is_active ? 'deactivate' : 'activate'}`);
       setUsers(prev => prev.map(u => u.id === updated.id ? updated : u));
     } catch (err) {
-      window.alert(err instanceof ApiError ? err.message : 'Nie udało się zmienić statusu konta.');
+      alertDialog(err instanceof ApiError ? err.message : 'Nie udało się zmienić statusu konta.', { title: 'Błąd', tone: 'danger' });
     }
   };
 
@@ -512,12 +520,14 @@ export default function AdminUsers({ addOpen: addPanelOpen = false, onAddClose, 
               onBlur={e => { e.currentTarget.style.borderColor = 'var(--border-default)'; }} />
           </Field>
           <Field label="Rola systemowa">
-            <select style={inputStyle} value={newRole} onChange={e => setNewRole(e.target.value as Role)}
-              onFocus={e => { e.currentTarget.style.borderColor = 'var(--focus-ring)'; }}
-              onBlur={e => { e.currentTarget.style.borderColor = 'var(--border-default)'; }}>
-              <option value="OPERATOR">Operator</option>
-              <option value="ADMIN">Administrator</option>
-            </select>
+            <Select
+              value={newRole}
+              onChange={v => setNewRole(v as Role)}
+              options={[
+                { value: 'OPERATOR', label: 'Operator' },
+                { value: 'ADMIN', label: 'Administrator' },
+              ]}
+            />
           </Field>
           <Field label="Hasło">
             <input style={inputStyle} type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)}
@@ -584,10 +594,10 @@ export default function AdminUsers({ addOpen: addPanelOpen = false, onAddClose, 
             </Field>
 
             <Field label="Rola systemowa">
-              <select style={inputStyle}
+              <Select
                 value={editUser.role}
-                onChange={e => {
-                  const role = e.target.value as Role;
+                onChange={v => {
+                  const role = v as Role;
                   setEditUser({
                     ...editUser,
                     role,
@@ -595,11 +605,11 @@ export default function AdminUsers({ addOpen: addPanelOpen = false, onAddClose, 
                     location_ids: role === 'ADMIN' ? [] : editUser.location_ids,
                   });
                 }}
-                onFocus={e => { e.currentTarget.style.borderColor = 'var(--focus-ring)'; }}
-                onBlur={e => { e.currentTarget.style.borderColor = 'var(--border-default)'; }}>
-                <option value="OPERATOR">Operator</option>
-                <option value="ADMIN">Administrator</option>
-              </select>
+                options={[
+                  { value: 'OPERATOR', label: 'Operator' },
+                  { value: 'ADMIN', label: 'Administrator' },
+                ]}
+              />
             </Field>
 
             <Field label="Nowe hasło">

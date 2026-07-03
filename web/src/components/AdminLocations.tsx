@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { api, ApiError } from '../lib/api';
 import type { LocationResponse, TabletResponse, UserResponse } from '../lib/apiTypes';
+import { confirmDialog, alertDialog } from '../lib/dialogs';
+import Select from './ui/Select';
 
 const POLL_INTERVAL_MS = 10000;
 
@@ -194,12 +196,18 @@ export default function AdminLocations({ addOpen = false, onAddClose, searchQuer
   };
 
   const handleToggleActive = async (location: LocationResponse) => {
-    if (location.is_active && !window.confirm(`Czy na pewno chcesz dezaktywować lokalizację "${location.name}"? Przypisany tablet i użytkownicy zostaną od niej odłączeni.`)) return;
+    if (location.is_active) {
+      const ok = await confirmDialog(
+        `Czy na pewno chcesz dezaktywować lokalizację "${location.name}"? Przypisany tablet i użytkownicy zostaną od niej odłączeni.`,
+        { title: 'Dezaktywuj lokalizację', tone: 'danger', confirmLabel: 'Dezaktywuj' }
+      );
+      if (!ok) return;
+    }
     try {
       const updated = await api.post<LocationResponse>(`/admin/locations/${location.id}/${location.is_active ? 'deactivate' : 'activate'}`);
       setLocations(prev => prev.map(l => l.id === updated.id ? updated : l));
     } catch (err) {
-      window.alert(err instanceof ApiError ? err.message : 'Nie udało się zmienić statusu lokalizacji.');
+      alertDialog(err instanceof ApiError ? err.message : 'Nie udało się zmienić statusu lokalizacji.', { title: 'Błąd', tone: 'danger' });
     }
   };
 
@@ -215,20 +223,24 @@ export default function AdminLocations({ addOpen = false, onAddClose, searchQuer
       setNewName('');
       setNewDescription('');
     } catch (err) {
-      window.alert(err instanceof ApiError ? err.message : 'Nie udało się dodać lokalizacji.');
+      alertDialog(err instanceof ApiError ? err.message : 'Nie udało się dodać lokalizacji.', { title: 'Błąd', tone: 'danger' });
     }
   };
 
   const handleDeleteLocation = async () => {
     if (!editingLocation) return;
-    if (!window.confirm(`Czy na pewno chcesz usunąć lokalizację "${editingLocation.name}"? Tej operacji nie można cofnąć.`)) return;
+    const ok = await confirmDialog(
+      `Czy na pewno chcesz usunąć lokalizację "${editingLocation.name}"? Tej operacji nie można cofnąć.`,
+      { title: 'Usuń lokalizację', tone: 'danger', confirmLabel: 'Usuń' }
+    );
+    if (!ok) return;
     try {
       await api.del(`/admin/locations/${editingLocation.id}`);
       setLocations(prev => prev.filter(l => l.id !== editingLocation.id));
       setEditingLocation(null);
       refetch(); // odśwież tablety — jeden mógł zostać odłączony kaskadowo
     } catch (err) {
-      window.alert(err instanceof ApiError ? err.message : 'Nie udało się usunąć lokalizacji.');
+      alertDialog(err instanceof ApiError ? err.message : 'Nie udało się usunąć lokalizacji.', { title: 'Błąd', tone: 'danger' });
     }
   };
 
@@ -245,7 +257,7 @@ export default function AdminLocations({ addOpen = false, onAddClose, searchQuer
       setEditingLocation(null);
       refetch(); // odśwież tablety — poprzedni najemca mógł zostać odłączony
     } catch (err) {
-      window.alert(err instanceof ApiError ? err.message : 'Nie udało się zapisać zmian.');
+      alertDialog(err instanceof ApiError ? err.message : 'Nie udało się zapisać zmian.', { title: 'Błąd', tone: 'danger' });
     }
   };
 
@@ -451,17 +463,18 @@ export default function AdminLocations({ addOpen = false, onAddClose, searchQuer
                   Aktywuj lokalizację, aby przypisać tablet.
                 </p>
               ) : (
-                <select style={inputStyle} value={editingLocation.tablet_id ?? ''}
-                  onChange={e => setEditingLocation({ ...editingLocation, tablet_id: e.target.value ? Number(e.target.value) : null })}
-                  onFocus={e => { e.currentTarget.style.borderColor = 'var(--focus-ring)'; }}
-                  onBlur={e => { e.currentTarget.style.borderColor = 'var(--border-default)'; }}>
-                  <option value="">Brak przypisanego tabletu</option>
-                  {tablets.filter(t => t.is_active).map(t => (
-                    <option key={t.id} value={t.id}>
-                      {t.name || 'Tablet bez nazwy'}{t.location_id && t.location_id !== editingLocation.id ? ' (przypisany gdzie indziej)' : ''}
-                    </option>
-                  ))}
-                </select>
+                <Select
+                  value={editingLocation.tablet_id !== null ? String(editingLocation.tablet_id) : ''}
+                  onChange={v => setEditingLocation({ ...editingLocation, tablet_id: v ? Number(v) : null })}
+                  placeholder="Brak przypisanego tabletu"
+                  options={[
+                    { value: '', label: 'Brak przypisanego tabletu' },
+                    ...tablets.filter(t => t.is_active).map(t => ({
+                      value: String(t.id),
+                      label: `${t.name || 'Tablet bez nazwy'}${t.location_id && t.location_id !== editingLocation.id ? ' (przypisany gdzie indziej)' : ''}`,
+                    })),
+                  ]}
+                />
               )}
             </Field>
 

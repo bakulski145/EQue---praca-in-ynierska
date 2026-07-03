@@ -10,6 +10,7 @@ import UserSidebar from './components/UserSidebar';
 import UserHome from './components/UserHome';
 import UserQueue from './components/UserQueue';
 import { api, getToken, clearToken } from './lib/api';
+import { DialogHost } from './lib/dialogs';
 import type { MeResponse } from './lib/apiTypes';
 
 type Role = 'admin' | 'user' | null;
@@ -317,6 +318,7 @@ export default function App() {
           </div>
         </div>
       </main>
+      <DialogHost />
     </div>
   );
 }

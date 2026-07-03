@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { api, ApiError } from '../lib/api';
 import type { LocationResponse, QueueResponse } from '../lib/apiTypes';
 import { recordResolved, getActivity } from '../lib/ticketActivity';
+import { alertDialog } from '../lib/dialogs';
+import Select from './ui/Select';
 
 const POLL_INTERVAL_MS = 10000;
 
@@ -135,7 +137,7 @@ export default function UserQueue({ locationIds }: { userName: string; locationI
       bumpActivity(n => n + 1);
       refetchQueue(selectedLocationId);
     } catch (err) {
-      window.alert(err instanceof ApiError ? err.message : 'Nie udało się wykonać akcji.');
+      alertDialog(err instanceof ApiError ? err.message : 'Nie udało się wykonać akcji.', { title: 'Błąd', tone: 'danger' });
     }
   };
 
@@ -145,7 +147,7 @@ export default function UserQueue({ locationIds }: { userName: string; locationI
       await api.post(`/admin/tickets/${ticketId}/call`);
       refetchQueue(selectedLocationId);
     } catch (err) {
-      window.alert(err instanceof ApiError ? err.message : 'Nie udało się wezwać klienta.');
+      alertDialog(err instanceof ApiError ? err.message : 'Nie udało się wezwać klienta.', { title: 'Błąd', tone: 'danger' });
     }
   };
 
@@ -193,22 +195,13 @@ export default function UserQueue({ locationIds }: { userName: string; locationI
             Nie masz przypisanych żadnych lokalizacji. Skontaktuj się z administratorem.
           </p>
         ) : (
-          <select
-            value={selectedLocationId}
-            onChange={e => selectLocation(e.target.value)}
-            style={{
-              minWidth: 240, border: '1.5px solid var(--border-default)', borderRadius: 'var(--radius-md)',
-              padding: '10px 14px', fontFamily: 'var(--font-ui)', fontSize: 14.5, fontWeight: 600,
-              color: 'var(--text-strong)', background: 'var(--surface-card)', outline: 'none', cursor: 'pointer',
-            }}
-            onFocus={e => { e.currentTarget.style.borderColor = 'var(--focus-ring)'; }}
-            onBlur={e => { e.currentTarget.style.borderColor = 'var(--border-default)'; }}
-          >
-            <option value="">— Wybierz lokalizację —</option>
-            {availableLocations.map(loc => (
-              <option key={loc.id} value={loc.id}>{loc.name}</option>
-            ))}
-          </select>
+          <Select
+            value={selectedLocationId === '' ? '' : String(selectedLocationId)}
+            onChange={selectLocation}
+            placeholder="— Wybierz lokalizację —"
+            style={{ width: 240 }}
+            options={availableLocations.map(loc => ({ value: String(loc.id), label: loc.name }))}
+          />
         )}
       </div>
 
