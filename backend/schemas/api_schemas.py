@@ -9,6 +9,7 @@ import uuid
 
 class QRCodeResponse(BaseModel):
     qr_token: str
+    short_code: str
     expires_in_seconds: int
 
 
@@ -17,8 +18,8 @@ class QRCodeResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 class JoinQueueRequest(BaseModel):
-    """Body POST /queue/join — dołączenie do kolejki dla danej lokalizacji."""
-    location_id: int
+    """Body POST /queue/join — dołączenie do kolejki przez zeskanowany QR token."""
+    qr_token: str                             # token z kodu QR (UUID, ważny ~45s w Redis)
     customer_name: Optional[str] = None       # imię/nazwisko (opcjonalne)
     appointment_time: Optional[str] = None    # np. "09:15" dla wizyt z rejestracji
 
@@ -28,6 +29,11 @@ class JoinQueueResponse(BaseModel):
     ticket_code: str                # krótki kod, np. "A3F"
     queue_position: int             # ile osób przede mną (0 = jestem pierwszy)
     location_id: int
+    estimated_wait_time_minutes: int  # szacowany czas oczekiwania (pozycja * 3 min)
+
+class PatientCancelRequest(BaseModel):
+    """Body POST /queue/cancel — pacjent samodzielnie anuluje swój bilet."""
+    ticket_code: str
 
 
 # ---------------------------------------------------------------------------

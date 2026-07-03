@@ -1,4 +1,5 @@
 import os
+import json
 import uuid
 import random
 import string
@@ -8,14 +9,15 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends, HTTPException, WebSocket, WebSocketDisconnect, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 import redis.asyncio as aioredis
 import models
 from auth import verify_password, create_access_token, hash_password, get_current_user, get_db
-from ws import manager as ws_manager, redis_pubsub_listener, publish_event
+from ws import manager as ws_manager, redis_pubsub_listener, publish_event, REDIS_CHANNEL
 
 from datetime import datetime, timezone
 from schemas.api_schemas import (
-    QRCodeResponse, JoinQueueRequest, JoinQueueResponse,
+    QRCodeResponse, JoinQueueRequest, JoinQueueResponse, PatientCancelRequest,
     TabletCreate, TabletUpdate, TabletResponse,
     LoginRequest, TokenResponse, MeResponse,
     UserCreate, UserUpdate, UserResponse,
@@ -270,8 +272,44 @@ async def me(current_user: models.User = Depends(get_current_user)):
 # ---------------------------------------------------------------------------
 
 @app.get("/api/v1/kiosk/qr", response_model=QRCodeResponse, tags=["Tablet"])
-async def get_new_qr_code():
-    return {"qr_token": "mock_uuid_123456789", "expires_in_seconds": 30}
+async def get_new_qr_code(
+    request: Request,
+    tablet_token: str = Query(..., description="pairing_token z tabeli Tablet"),
+    db: Session = Depends(get_db),
+):
+    """
+    Generuje dynamiczny, krótkotrwały token QR (45s) dla Kiosku.
+    Tablet identyfikuje się swoim pairing_token (query param).
+    Token QR jest zapisywany w Redis i mapuje na location_id tabletu.
+    """
+    # Znajdź tablet po pairing_token
+    tablet = db.query(models.Tablet).filter(
+        models.Tablet.pairing_token == tablet_token
+    ).first()
+
+    if not tablet or not tablet.location_id:
+        raise HTTPException(
+            status_code=401,
+            detail="Nieprawidłowy token tabletu lub tablet nie ma przypisanej lokalizacji",
+        )
+
+    # Heartbeat — aktualizuj last_seen_at, żeby sweeper nie oznaczył tabletu jako offline
+    tablet.last_seen_at = func.now()
+    db.commit()
+
+    # Wygeneruj losowy QR token (UUID) i krótki kod PIN (4 znaki)
+    qr_token = str(uuid.uuid4())
+    short_code = "".join(random.choices(string.ascii_uppercase + string.digits, k=4))
+
+    # Zapisz oba klucze w Redis na 45 sekund — pacjent może użyć dowolnego
+    await request.app.state.redis.setex(
+        f"qr:{qr_token}", 45, str(tablet.location_id)
+    )
+    await request.app.state.redis.setex(
+        f"qr:{short_code}", 45, str(tablet.location_id)
+    )
+
+    return {"qr_token": qr_token, "short_code": short_code, "expires_in_seconds": 45}
 
 
 # ---------------------------------------------------------------------------
@@ -403,14 +441,21 @@ def _get_ticket_or_404(ticket_id: str, db: Session) -> models.Ticket:
 
 
 @app.post("/api/v1/queue/join", response_model=JoinQueueResponse, status_code=201, tags=["Patient"])
-async def join_queue(request: JoinQueueRequest, db: Session = Depends(get_db)):
+async def join_queue(payload: JoinQueueRequest, request: Request, db: Session = Depends(get_db)):
     """
-    Dołącza do kolejki w danej lokalizacji.
-    Tworzy wpis Ticket(status=WAITING), generuje krótki ticket_code,
-    wylicza pozycję w kolejce (liczba WAITING dodanych wcześniej).
+    Dołącza do kolejki przez zeskanowany QR token.
+    Odczytuje location_id z Redisa (klucz qr:<token>, TTL 45s),
+    tworzy Ticket(status=WAITING), wylicza pozycję i szacowany czas.
     """
+    # Odczytaj location_id z Redisa na podstawie QR tokenu
+    loc_id_raw = await request.app.state.redis.get(f"qr:{payload.qr_token}")
+    if not loc_id_raw:
+        raise HTTPException(status_code=400, detail="QR token expired or invalid")
+
+    location_id = int(loc_id_raw)
+
     # Walidacja lokalizacji
-    loc = db.query(models.Location).filter(models.Location.id == request.location_id).first()
+    loc = db.query(models.Location).filter(models.Location.id == location_id).first()
     if not loc:
         raise HTTPException(status_code=404, detail="Lokalizacja nie istnieje")
     if not loc.is_active:
@@ -421,7 +466,7 @@ async def join_queue(request: JoinQueueRequest, db: Session = Depends(get_db)):
         code = _generate_ticket_code()
         collision = db.query(models.Ticket).filter(
             models.Ticket.ticket_code == code,
-            models.Ticket.location_id == request.location_id,
+            models.Ticket.location_id == location_id,
             models.Ticket.status.in_(["WAITING", "SERVING"]),
         ).first()
         if not collision:
@@ -431,17 +476,17 @@ async def join_queue(request: JoinQueueRequest, db: Session = Depends(get_db)):
     ticket = models.Ticket(
         ticket_code=code,
         status="WAITING",
-        location_id=request.location_id,
+        location_id=location_id,
         joined_at=now,
-        customer_name=request.customer_name,
-        appointment_time=request.appointment_time,
+        customer_name=payload.customer_name,
+        appointment_time=payload.appointment_time,
     )
     db.add(ticket)
     db.flush()   # nadaj ID bez commitu, żeby móc policzyć pozycję
 
     # Pozycja = ile biletów WAITING dla tej lokalizacji ma joined_at < now
     queue_position = db.query(models.Ticket).filter(
-        models.Ticket.location_id == request.location_id,
+        models.Ticket.location_id == location_id,
         models.Ticket.status == "WAITING",
         models.Ticket.joined_at < now,
     ).count()
@@ -449,12 +494,130 @@ async def join_queue(request: JoinQueueRequest, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(ticket)
 
+    estimated_wait_time_minutes = queue_position * 3
+
     return JoinQueueResponse(
         ticket_id=str(ticket.id),
         ticket_code=ticket.ticket_code,
         queue_position=queue_position,
         location_id=ticket.location_id,
+        estimated_wait_time_minutes=estimated_wait_time_minutes,
     )
+
+
+@app.post("/api/v1/queue/cancel", tags=["Patient"])
+async def patient_cancel_ticket(
+    payload: PatientCancelRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """
+    Publiczny endpoint — pacjent samodzielnie anuluje swój bilet.
+    Dozwolone tylko dla biletów w statusie WAITING.
+    """
+    ticket = db.query(models.Ticket).filter(
+        models.Ticket.ticket_code == payload.ticket_code
+    ).first()
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+
+    if ticket.status != "WAITING":
+        raise HTTPException(
+            status_code=400,
+            detail="Only waiting tickets can be cancelled by patient",
+        )
+
+    ticket.status = "CANCELLED"
+    ticket.served_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(ticket)
+
+    # Powiadomienie panelu operatora (WebSocket location topic)
+    response = _ticket_to_response(ticket)
+    await publish_event(
+        request.app.state.redis,
+        topic=f"location:{ticket.location_id}",
+        event_type="ticket.updated",
+        payload={"ticket": response.model_dump()},
+    )
+
+    # Aktualizacja pozycji dla pozostałych WAITING pacjentów
+    await _broadcast_queue_updates(request.app.state.redis, ticket.location_id, db)
+
+    return {"message": "Ticket cancelled successfully"}
+
+
+# ---------------------------------------------------------------------------
+# Helper: rozsyłanie QUEUE_UPDATE do wszystkich WAITING pacjentów
+# ---------------------------------------------------------------------------
+
+async def _broadcast_queue_updates(redis_client, location_id: int, db: Session) -> None:
+    """
+    Pobiera wszystkie bilety WAITING dla danej lokalizacji (posortowane po joined_at),
+    wylicza nową pozycję każdego i wysyła event QUEUE_UPDATE do topiku guest:{ticket_code}.
+    """
+    waiting_tickets = (
+        db.query(models.Ticket)
+        .filter(
+            models.Ticket.location_id == location_id,
+            models.Ticket.status == "WAITING",
+        )
+        .order_by(models.Ticket.joined_at.asc())
+        .all()
+    )
+
+    for idx, t in enumerate(waiting_tickets, start=1):
+        update_msg = {
+            "topic": f"guest:{t.ticket_code}",
+            "event": "QUEUE_UPDATE",
+            "queue_position": idx,
+            "estimated_wait_time_minutes": idx * 3,
+        }
+        await redis_client.publish(REDIS_CHANNEL, json.dumps(update_msg, default=str))
+
+
+# ---------------------------------------------------------------------------
+# WEBSOCKET — /api/v1/queue/ws/{ticket_code} (pacjent, bez JWT — Opcja A)
+# ---------------------------------------------------------------------------
+
+@app.websocket("/api/v1/queue/ws/{ticket_code}")
+async def guest_websocket_endpoint(
+    websocket: WebSocket,
+    ticket_code: str,
+):
+    """
+    Otwarty WebSocket dla pacjenta (mobilna aplikacja).
+    Nie wymaga JWT — identyfikacja po ticket_code.
+    Pacjent nasłuchuje eventów YOUR_TURN i QUEUE_UPDATE.
+    """
+    from database import SessionLocal
+
+    # Sprawdź czy bilet o podanym ticket_code istnieje
+    db = SessionLocal()
+    try:
+        ticket = db.query(models.Ticket).filter(
+            models.Ticket.ticket_code == ticket_code
+        ).first()
+        if not ticket:
+            await websocket.close(code=4004)
+            return
+    finally:
+        db.close()
+
+    # Akceptuj połączenie i subskrybuj topik guest:{ticket_code}
+    await ws_manager.connect(websocket)
+    ws_manager.subscribe(websocket, [f"guest:{ticket_code}"])
+    logger.info("WS guest: bilet '%s' połączony.", ticket_code)
+
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        ws_manager.disconnect(websocket)
+        logger.info("WS guest: bilet '%s' rozłączony.", ticket_code)
+    except Exception as exc:
+        logger.error("WS guest: błąd dla biletu '%s': %s", ticket_code, exc)
+        ws_manager.disconnect(websocket)
 
 
 # ---------------------------------------------------------------------------
@@ -1052,6 +1215,7 @@ async def call_ticket(
     """
     Wzywa pacjenta do okienka.
     status → SERVING, called_at = now(), served_by_user_id = zalogowany operator.
+    Wysyła event YOUR_TURN do wezwanego pacjenta i QUEUE_UPDATE do pozostałych.
     """
     ticket = _get_ticket_or_404(ticket_id, db)
     if ticket.status != "WAITING":
@@ -1065,13 +1229,27 @@ async def call_ticket(
     db.commit()
     db.refresh(ticket)
     response = _ticket_to_response(ticket)
-    # Puść event przez Redis → WebSocket
+
+    # Event dla panelu admina/operatora (location topic)
     await publish_event(
         request.app.state.redis,
         topic=f"location:{ticket.location_id}",
         event_type="ticket.updated",
         payload={"ticket": response.model_dump()},
     )
+
+    # Event YOUR_TURN do wezwanego pacjenta (guest topic)
+    your_turn_msg = {
+        "topic": f"guest:{ticket.ticket_code}",
+        "event": "YOUR_TURN",
+    }
+    await request.app.state.redis.publish(
+        REDIS_CHANNEL, json.dumps(your_turn_msg, default=str)
+    )
+
+    # QUEUE_UPDATE dla wszystkich pozostałych WAITING pacjentów
+    await _broadcast_queue_updates(request.app.state.redis, ticket.location_id, db)
+
     return response
 
 
@@ -1089,6 +1267,7 @@ async def complete_ticket(
     """
     Kończy obsługę pacjenta.
     status → COMPLETED, served_at = now().
+    Rozsyła QUEUE_UPDATE do pozostałych WAITING pacjentów.
     """
     ticket = _get_ticket_or_404(ticket_id, db)
     if ticket.status != "SERVING":
@@ -1101,12 +1280,18 @@ async def complete_ticket(
     db.commit()
     db.refresh(ticket)
     response = _ticket_to_response(ticket)
+
+    # Event dla panelu admina/operatora
     await publish_event(
         request.app.state.redis,
         topic=f"location:{ticket.location_id}",
         event_type="ticket.updated",
         payload={"ticket": response.model_dump()},
     )
+
+    # QUEUE_UPDATE dla wszystkich WAITING pacjentów
+    await _broadcast_queue_updates(request.app.state.redis, ticket.location_id, db)
+
     return response
 
 
@@ -1125,6 +1310,7 @@ async def cancel_ticket(
     Anuluje bilet (pacjent się nie zgłosił / zrezygnował).
     Można anulować zarówno WAITING jak i SERVING.
     status → CANCELLED, served_at = now().
+    Rozsyła QUEUE_UPDATE do pozostałych WAITING pacjentów.
     """
     ticket = _get_ticket_or_404(ticket_id, db)
     if ticket.status in ("COMPLETED", "CANCELLED"):
@@ -1137,11 +1323,17 @@ async def cancel_ticket(
     db.commit()
     db.refresh(ticket)
     response = _ticket_to_response(ticket)
+
+    # Event dla panelu admina/operatora
     await publish_event(
         request.app.state.redis,
         topic=f"location:{ticket.location_id}",
         event_type="ticket.updated",
         payload={"ticket": response.model_dump()},
     )
+
+    # QUEUE_UPDATE dla wszystkich WAITING pacjentów
+    await _broadcast_queue_updates(request.app.state.redis, ticket.location_id, db)
+
     return response
 
