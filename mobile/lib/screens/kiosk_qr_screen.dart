@@ -31,13 +31,12 @@ class _KioskQrScreenState extends State<KioskQrScreen> {
   }
 
   Future<void> _pobierzNowyKodQr() async {
-    final apiUrl = Uri.parse(ApiConfig.kioskQrUrl);
+    final finalUrl = Uri.parse('${ApiConfig.kioskQrUrl}?tablet_token=${widget.adminToken}');
 
     try {
       final response = await http.get(
-        apiUrl,
+        finalUrl,
         headers: {
-          'Authorization': 'Bearer ${widget.adminToken}',
           'Content-Type': 'application/json',
         },
       ).timeout(const Duration(seconds: 10));

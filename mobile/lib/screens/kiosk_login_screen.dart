@@ -1,8 +1,5 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
-import 'kiosk_qr_screen.dart'; // Upewnij się, że importujesz ekran z kroku 2
-import '../api_config.dart'; // Importujemy konfigurację API
+import 'kiosk_qr_screen.dart';
 
 class KioskLoginScreen extends StatefulWidget {
   const KioskLoginScreen({super.key});
@@ -12,70 +9,34 @@ class KioskLoginScreen extends StatefulWidget {
 }
 
 class _KioskLoginScreenState extends State<KioskLoginScreen> {
-  final _usernameController = TextEditingController();
-  final _passwordController = TextEditingController();
-  bool _isLoading = false;
+  // Zamiast loginu i hasła mamy tylko JEDNO pole na token tabletu
+  final _tokenController = TextEditingController();
   String? _errorMessage;
 
-  Future<void> _login() async {
-    // Ukrywamy klawiaturę
-    FocusScope.of(context).unfocus();
+  void _przejdzDoKiosku() {
+    FocusScope.of(context).unfocus(); // Ukrywamy klawiaturę
+    final String wpisanyToken = _tokenController.text.trim();
 
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-    });
-
-    // Pamiętaj: 10.0.2.2 to localhost dla emulatora Androida. 
-    // Na prawdziwym urządzeniu musisz podać IP swojego komputera w sieci lokalnej (np. 192.168.x.x)
-    final url = Uri.parse(ApiConfig.loginUrl);
-
-    try {
-      final response = await http.post(
-        url,
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'username': _usernameController.text,
-          'password': _passwordController.text,
-        }),
-      );
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        final token = data['access_token'];
-
-        if (mounted) {
-          // Używamy pushReplacement, aby zablokować możliwość "cofnięcia" się do ekranu logowania 
-          // po udanym zalogowaniu za pomocą systemowego przycisku wstecz
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(
-              builder: (context) => KioskQrScreen(adminToken: token),
-            ),
-          );
-        }
-      } else {
-        setState(() {
-          _errorMessage = 'Nieprawidłowy login lub hasło.';
-        });
-      }
-    } catch (e) {
+    if (wpisanyToken.isEmpty) {
       setState(() {
-        _errorMessage = 'Błąd połączenia z serwerem. Sprawdź sieć.';
+        _errorMessage = 'Wprowadź token urządzenia!';
       });
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
-      }
+      return;
     }
+
+    // NIE ROBIMY ŻADNEGO ZAPYTANIA HTTP DO /auth/login!
+    // Od razu otwieramy KioskQrScreen i przekazujemy mu token parowania:
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(
+        builder: (context) => KioskQrScreen(adminToken: wpisanyToken),
+      ),
+    );
   }
 
   @override
   void dispose() {
-    _usernameController.dispose();
-    _passwordController.dispose();
+    _tokenController.dispose();
     super.dispose();
   }
 
@@ -84,7 +45,7 @@ class _KioskLoginScreenState extends State<KioskLoginScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFFF0F2F5),
       appBar: AppBar(
-        title: const Text('Logowanie Placówki'),
+        title: const Text('Konfiguracja Kiosku'),
         backgroundColor: Colors.white,
         foregroundColor: Colors.black87,
         elevation: 0,
@@ -100,11 +61,17 @@ class _KioskLoginScreenState extends State<KioskLoginScreen> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Icon(Icons.admin_panel_settings, size: 64, color: Color(0xFF1877F2)),
+                  const Icon(Icons.tablet_mac, size: 64, color: Color(0xFF1877F2)),
                   const SizedBox(height: 16),
                   const Text(
-                    'Autoryzacja Kiosku',
+                    'Parowanie Tabletu',
                     style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Wprowadź token przypisany do tej lokalizacji w panelu administratora.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: Colors.black54, fontSize: 14),
                   ),
                   const SizedBox(height: 32),
                   if (_errorMessage != null) ...[
@@ -122,21 +89,13 @@ class _KioskLoginScreenState extends State<KioskLoginScreen> {
                     ),
                     const SizedBox(height: 16),
                   ],
+                  // Jedno pole tekstowe na Pairing Token
                   TextField(
-                    controller: _usernameController,
+                    controller: _tokenController,
                     decoration: InputDecoration(
-                      labelText: 'Nazwa użytkownika',
-                      prefixIcon: const Icon(Icons.person),
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  TextField(
-                    controller: _passwordController,
-                    obscureText: true,
-                    decoration: InputDecoration(
-                      labelText: 'Hasło',
-                      prefixIcon: const Icon(Icons.lock),
+                      labelText: 'Token urządzenia (Pairing Token)',
+                      hintText: 'np. kiosk-rejestracja-123',
+                      prefixIcon: const Icon(Icons.key),
                       border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                     ),
                   ),
@@ -145,7 +104,7 @@ class _KioskLoginScreenState extends State<KioskLoginScreen> {
                     width: double.infinity,
                     height: 50,
                     child: ElevatedButton(
-                      onPressed: _isLoading ? null : _login,
+                      onPressed: _przejdzDoKiosku,
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFF1877F2),
                         foregroundColor: Colors.white,
@@ -153,13 +112,7 @@ class _KioskLoginScreenState extends State<KioskLoginScreen> {
                           borderRadius: BorderRadius.circular(12),
                         ),
                       ),
-                      child: _isLoading
-                          ? const SizedBox(
-                              height: 24,
-                              width: 24,
-                              child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
-                            )
-                          : const Text('Zaloguj', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                      child: const Text('Uruchom Kiosk', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                     ),
                   ),
                 ],
