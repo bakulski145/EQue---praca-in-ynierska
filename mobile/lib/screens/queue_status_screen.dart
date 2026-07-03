@@ -3,11 +3,13 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:http/http.dart' as http;
+import 'package:permission_handler/permission_handler.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../api_config.dart';
 import '../main.dart'; 
 import '../services/queue_socket_service.dart';
 
 class QueueStatusScreen extends StatefulWidget {
-  // 1. Odbieramy TOKEN z ekranu skanowania, a nie gotowy bilet
   final String scannedToken; 
 
   const QueueStatusScreen({super.key, required this.scannedToken});
@@ -20,7 +22,6 @@ class _QueueStatusScreenState extends State<QueueStatusScreen> {
   final QueueSocketService _socketService = QueueSocketService();
   StreamSubscription? _socketSubscription;
 
-  // 2. Tworzymy zmienną na właściwy bilet, który zaraz dostaniemy z backendu
   String? _prawdziwyNumerBiletu; 
 
   int _osobyPrzedNami = 0;
@@ -37,41 +38,49 @@ class _QueueStatusScreenState extends State<QueueStatusScreen> {
   }
 
   Future<void> _pobierzDaneStartoweIDolacz() async {
-    final apiUrl = Uri.parse('http://10.0.2.2:8000/api/v1/queue/join');
+    final apiUrl = Uri.parse(ApiConfig.joinQueueUrl);
 
     try {
       final response = await http.post(
         apiUrl,
         headers: {'Content-Type': 'application/json'},
-        // 3. Wysyłamy do serwera ZESKANOWANY TOKEN
         body: jsonEncode({'qr_token': widget.scannedToken}), 
       ).timeout(const Duration(seconds: 10));
 
-      // Twój mock w backendzie może zwracać 201 (Created), więc warto to uwzględnić
       if (response.statusCode == 200 || response.statusCode == 201) {
         final Map<String, dynamic> data = jsonDecode(response.body);
 
+        if (!mounted) return;
         setState(() {
-          // 4. Pobieramy i zapisujemy prawdziwy bilet z odpowiedzi (np. "A12")
           _prawdziwyNumerBiletu = data['ticket_code']; 
-          
           _osobyPrzedNami = data['queue_position'] ?? 0;
           _poczatkoweOsoby = data['queue_position'] ?? 0;
           _szacowanyCzasMinuty = data['estimated_wait_time_minutes'] ?? 0;
           _isLoading = false;
         });
 
-        // 5. Do WebSocketa łączymy się już używając prawdziwego biletu!
         if (_prawdziwyNumerBiletu != null) {
+          // 1. Zapisujemy bilet w pamięci telefonu
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString('aktywny_bilet', _prawdziwyNumerBiletu!);
+
+          // 2. Prosimy o uprawnienia do powiadomień (Android 13+)
+          if (await Permission.notification.isDenied) {
+            await Permission.notification.request();
+          }
+
+          // 3. Łączymy się z WebSocketem
           _podlaczWebSocket();
         }
       } else {
+        if (!mounted) return;
         setState(() {
           _errorMessage = 'Błąd serwera (Kod: ${response.statusCode})';
           _isLoading = false;
         });
       }
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _errorMessage = 'Brak połączenia z backendem eQue. Upewnij się, że serwer działa.';
         _isLoading = false;
@@ -80,9 +89,9 @@ class _QueueStatusScreenState extends State<QueueStatusScreen> {
   }
 
   void _podlaczWebSocket() {
-    // Używamy wyciągniętego z API _prawdziwyNumerBiletu
     _socketSubscription = _socketService.connectToQueue(_prawdziwyNumerBiletu!).listen(
-      (data) {
+      (data) async {
+        if (!mounted) return;
         setState(() {
           final String event = data['event'] ?? '';
 
@@ -101,6 +110,12 @@ class _QueueStatusScreenState extends State<QueueStatusScreen> {
             _pokazPowiadomienie(0);
           }
         });
+
+        // Jeśli to już nasza kolej, usuwamy zapisany bilet z pamięci
+        if (data['event'] == 'YOUR_TURN') {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.remove('aktywny_bilet');
+        }
       },
       onError: (error) {
         debugPrint('Błąd WebSocketa: $error');
@@ -143,6 +158,20 @@ class _QueueStatusScreenState extends State<QueueStatusScreen> {
     }
   }
 
+  // Wywoływane, gdy pacjent rezygnuje z wizyty
+  Future<void> _anulujBiletNaSerwerze() async {
+    if (_prawdziwyNumerBiletu == null) return;
+    try {
+      await http.post(
+        Uri.parse(ApiConfig.cancelQueueUrl),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'ticket_code': _prawdziwyNumerBiletu}),
+      ).timeout(const Duration(seconds: 5));
+    } catch (_) {
+      // Ignorujemy błąd sieci przy zamykaniu
+    }
+  }
+
   void _potwierdzOpuszczenieKolejki() {
     showDialog(
       context: context,
@@ -157,10 +186,20 @@ class _QueueStatusScreenState extends State<QueueStatusScreen> {
             ),
             ElevatedButton(
               style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
-              onPressed: () {
+              onPressed: () async {
+                // 1. Wyczyszczenie pamięci lokalnej
+                final prefs = await SharedPreferences.getInstance();
+                await prefs.remove('aktywny_bilet');
+                
+                // 2. Zgłoszenie rezygnacji do backendu
+                await _anulujBiletNaSerwerze();
+
+                // 3. Rozłączenie gniazda i wyłączenie powiadomień
                 _socketSubscription?.cancel();
                 _socketService.disconnect();
                 flutterLocalNotificationsPlugin.cancelAll();
+                
+                if (!mounted) return;
                 Navigator.of(dialogContext).pop();
                 Navigator.of(context).pop(); 
               },
@@ -183,7 +222,7 @@ class _QueueStatusScreenState extends State<QueueStatusScreen> {
             children: [
               CircularProgressIndicator(),
               SizedBox(height: 16),
-              Text('Weryfikacja kodu i pobieranie biletu...'), // Zmiana tekstu
+              Text('Weryfikacja kodu i pobieranie biletu...'),
             ],
           ),
         ),
@@ -251,7 +290,6 @@ class _QueueStatusScreenState extends State<QueueStatusScreen> {
               children: [
                 const Text('Twój numer biletowy:', style: TextStyle(fontSize: 14, color: Colors.black54)),
                 Text(
-                  // 6. Wyświetlamy tutaj bilet z bazy (lub '...' w razie pustej zmiennej)
                   _prawdziwyNumerBiletu ?? '...', 
                   style: const TextStyle(fontSize: 56, fontWeight: FontWeight.w900, color: Color(0xFF1877F2), letterSpacing: 2),
                 ),
@@ -341,7 +379,12 @@ class _QueueStatusScreenState extends State<QueueStatusScreen> {
                     width: double.infinity,
                     child: ElevatedButton(
                       style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
-                      onPressed: () => Navigator.of(context).pop(),
+                      onPressed: () async {
+                        final prefs = await SharedPreferences.getInstance();
+                        await prefs.remove('aktywny_bilet');
+                        if (!context.mounted) return;
+                        Navigator.of(context).pop();
+                      },
                       child: const Text('Zakończ wizytę', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                     ),
                   )
