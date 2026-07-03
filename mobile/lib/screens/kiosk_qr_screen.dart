@@ -3,10 +3,12 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:qr_flutter/qr_flutter.dart';
-import '../api_config.dart'; // Importujemy konfigurację API
+import 'package:wakelock_plus/wakelock_plus.dart';
+import '../api_config.dart';
+import 'kiosk_login_screen.dart';
 
 class KioskQrScreen extends StatefulWidget {
-  final String adminToken; // Token JWT uzyskany podczas logowania
+  final String adminToken;
 
   const KioskQrScreen({super.key, required this.adminToken});
 
@@ -23,6 +25,8 @@ class _KioskQrScreenState extends State<KioskQrScreen> {
   @override
   void initState() {
     super.initState();
+    // 1. Blokujemy wygaszanie ekranu, żeby tablet przy wejściu nie zgasł
+    WakelockPlus.enable();
     _pobierzNowyKodQr();
   }
 
@@ -40,18 +44,29 @@ class _KioskQrScreenState extends State<KioskQrScreen> {
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
+        if (!mounted) return;
+        
         setState(() {
           _obecnyKodQr = data['qr_token'];
           _isLoading = false;
           _errorMessage = null;
         });
 
-        // Backend podaje "expires_in_seconds" (zazwyczaj 30s)
         final int waznoscS = data['expires_in_seconds'] ?? 30;
+        final int czasDoOdswiezania = (waznoscS > 3) ? waznoscS - 3 : waznoscS;
         
-        // Odpalamy timer, aby tuż przed wygaśnięciem pobrać nowy kod
         _timerOdswiezania?.cancel();
-        _timerOdswiezania = Timer(Duration(seconds: waznoscS), _pobierzNowyKodQr);
+        _timerOdswiezania = Timer(Duration(seconds: czasDoOdswiezania), _pobierzNowyKodQr);
+      } 
+      // 2. Obsługa wygaśnięcia sesji administratora (np. po resecie serwera lub upływie czasu)
+      else if (response.statusCode == 401 || response.statusCode == 403) {
+        _timerOdswiezania?.cancel();
+        if (mounted) {
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(builder: (context) => const KioskLoginScreen()),
+          );
+        }
+        return;
       } else {
         _ustawBlad('Błąd autoryzacji lub serwera (Kod: ${response.statusCode})');
       }
@@ -61,11 +76,11 @@ class _KioskQrScreenState extends State<KioskQrScreen> {
   }
 
   void _ustawBlad(String wiadomosc) {
+    if (!mounted) return;
     setState(() {
       _errorMessage = wiadomosc;
       _isLoading = false;
     });
-    // Ponowna próba za 5 sekund w przypadku błędu
     _timerOdswiezania?.cancel();
     _timerOdswiezania = Timer(const Duration(seconds: 5), _pobierzNowyKodQr);
   }
@@ -73,6 +88,8 @@ class _KioskQrScreenState extends State<KioskQrScreen> {
   @override
   void dispose() {
     _timerOdswiezania?.cancel();
+    // Pozwalamy ekranowi zgasnąć po wyjściu z trybu kiosku
+    WakelockPlus.disable();
     super.dispose();
   }
 

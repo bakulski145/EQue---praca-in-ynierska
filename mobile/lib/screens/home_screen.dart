@@ -1,10 +1,33 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'scan_screen.dart';
 import 'map_screen.dart';
 import 'kiosk_login_screen.dart';
+import 'queue_status_screen.dart';
 
-class HomeScreen extends StatelessWidget {
+class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  String? _zapisanyBilet;
+
+  @override
+  void initState() {
+    super.initState();
+    _sprawdzAktywnyBilet();
+  }
+
+  Future<void> _sprawdzAktywnyBilet() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (!mounted) return;
+    setState(() {
+      _zapisanyBilet = prefs.getString('aktywny_bilet');
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -27,7 +50,6 @@ class HomeScreen extends StatelessWidget {
             children: [
               GestureDetector(
                 onLongPress: () {
-                  // Ukryty gest wywołujący logowanie dla Kiosku!
                   Navigator.push(
                     context,
                     MaterialPageRoute(
@@ -63,20 +85,59 @@ class HomeScreen extends StatelessWidget {
                 textAlign: TextAlign.center,
                 style: TextStyle(fontSize: 15, color: Colors.black54),
               ),
-              const SizedBox(height: 40),
+              const SizedBox(height: 24),
+
+              // --- BANER PRZYWRACAJĄCY AKTYWNY BILET ---
+              if (_zapisanyBilet != null) ...[
+                Card(
+                  color: Colors.amber.shade50,
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    side: BorderSide(color: Colors.amber.shade300, width: 1.5),
+                  ),
+                  child: ListTile(
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    leading: const Icon(Icons.confirmation_number, color: Colors.amber, size: 36),
+                    title: Text(
+                      'Masz aktywny bilet: $_zapisanyBilet',
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black87),
+                    ),
+                    subtitle: const Text(
+                      'Kliknij, aby wrócić do podglądu kolejki.',
+                      style: TextStyle(color: Colors.black54, fontSize: 13),
+                    ),
+                    trailing: const Icon(Icons.arrow_forward_ios, size: 16, color: Colors.amber),
+                    onTap: () async {
+                      await Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          // Przekazujemy zapisany bilet (używamy go też jako tokena, skoro bilet już istnieje)
+                          builder: (context) => QueueStatusScreen(scannedToken: _zapisanyBilet!),
+                        ),
+                      );
+                      // Po powrocie odświeżamy stan, na wypadek gdyby pacjent zrezygnował z kolejki
+                      _sprawdzAktywnyBilet();
+                    },
+                  ),
+                ),
+                const SizedBox(height: 16),
+              ],
+              // -----------------------------------------
 
               _buildMenuButton(
                 context,
                 icon: Icons.qr_code_scanner,
                 title: 'Zeskanuj kod QR',
                 subtitle: 'Dołącz do nowej kolejki biletowej',
-                onTap: () {
-                  Navigator.push(
+                onTap: () async {
+                  await Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (context) => const ScanScreen(), // Usunięto parametr camera
+                      builder: (context) => const ScanScreen(),
                     ),
                   );
+                  _sprawdzAktywnyBilet();
                 },
               ),
               const SizedBox(height: 16),

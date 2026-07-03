@@ -5,7 +5,7 @@ class ApiConfig {
   // 1. WPISZ TUTAJ LOKALNE IP SWOJEGO KOMPUTERA (dla fizycznego telefonu z Wi-Fi)
   // Aby je poznać, wpisz w terminalu Windows: ipconfig (szukaj "IPv4 Address")
   // Na Macu/Linuxie wpisz: ifconfig
-  static const String _localLanIp = '192.168.1.15'; // <-- ZMIEŃ NA SWOJE IP
+  static const String _localLanIp = '192.168.101.2'; // <-- ZMIEŃ NA SWOJE IP
 
   // 2. Automatyczne wykrywanie właściwego hosta:
   static String get _host {
@@ -30,4 +30,5 @@ class ApiConfig {
   static String get loginUrl => '$baseUrl/api/v1/auth/login';
   static String get joinQueueUrl => '$baseUrl/api/v1/queue/join';
   static String get kioskQrUrl => '$baseUrl/api/v1/kiosk/qr';
+  static String get cancelQueueUrl => '$baseUrl/api/v1/queue/cancel';
 }
