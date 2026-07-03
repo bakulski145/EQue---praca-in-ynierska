@@ -1,7 +1,9 @@
 import { useState } from 'react';
+import { api, setToken, ApiError } from '../lib/api';
+import type { MeResponse, TokenResponse } from '../lib/apiTypes';
 
 interface LoginFormProps {
-  onLoginSuccess: (role: 'admin' | 'user', username: string) => void;
+  onLoginSuccess: (me: MeResponse) => void;
 }
 
 export default function LoginForm({ onLoginSuccess }: LoginFormProps) {
@@ -15,30 +17,15 @@ export default function LoginForm({ onLoginSuccess }: LoginFormProps) {
     setError('');
     setLoading(true);
 
-    const res = await fetch('/api/v1/auth/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, password }),
-    });
-
-    if (res.ok) {
-      const data = await res.json();
-      localStorage.setItem('eque_token', data.access_token);
+    try {
+      const token = await api.post<TokenResponse>('/auth/login', { username, password });
+      setToken(token.access_token);
+      const me = await api.get<MeResponse>('/auth/me');
+      onLoginSuccess(me);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Nieprawidłowy login lub hasło.');
+    } finally {
       setLoading(false);
-      onLoginSuccess('admin', username);
-      return;
-    }
-
-    const savedUsers = localStorage.getItem('eque_users');
-    const users: { fullName: string; password: string }[] = savedUsers ? JSON.parse(savedUsers) : [];
-    const match = users.find(u => u.fullName === username && u.password === password && u.password);
-
-    setLoading(false);
-
-    if (match) {
-      onLoginSuccess('user', match.fullName);
-    } else {
-      setError('Nieprawidłowy login lub hasło.');
     }
   };
 

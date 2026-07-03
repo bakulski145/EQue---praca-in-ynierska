@@ -1,24 +1,12 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import { api, ApiError } from '../lib/api';
+import type { UserResponse, LocationResponse, Role } from '../lib/apiTypes';
+import { confirmDialog, alertDialog } from '../lib/dialogs';
+import Select from './ui/Select';
 
-type SystemRole = 'Operator' | 'Admin';
 type OnlineStatus = 'online' | 'away' | 'offline';
 
-interface UserData {
-  id: string;
-  fullName: string;
-  stanowisko: string;
-  systemRole: SystemRole;
-  password: string;
-  locationIds: string[];
-  active: boolean;
-}
-
-interface Location {
-  id: string;
-  name: string;
-  userIds: string[];
-  active?: boolean;
-}
+const POLL_INTERVAL_MS = 10000;
 
 /* ── helpers ─────────────────────────────────────────── */
 
@@ -46,6 +34,9 @@ const STATUS_LABEL: Record<OnlineStatus, string> = {
   offline: 'Offline',
 };
 
+/* Prawdziwej obecności (kto jest online/away) backend jeszcze nie dostarcza —
+   last_seen_at nigdzie nie jest zapisywane, więc to zostaje symulowane
+   lokalnie do czasu aż backend dostanie realny heartbeat (WS ping). */
 function randomStatus(): OnlineStatus {
   const r = Math.random();
   if (r < 0.5) return 'online';
@@ -79,8 +70,8 @@ function Avatar({ name, status, active = true, size = 44 }: { name: string; stat
   );
 }
 
-function RoleBadge({ role, active = true }: { role: SystemRole; active?: boolean }) {
-  const isAdmin = role === 'Admin';
+function RoleBadge({ role, active = true }: { role: Role; active?: boolean }) {
+  const isAdmin = role === 'ADMIN';
   return (
     <span style={{
       display: 'inline-flex', alignItems: 'center', gap: 5,
@@ -90,7 +81,7 @@ function RoleBadge({ role, active = true }: { role: SystemRole; active?: boolean
       color:      !active ? 'var(--slate-400)' : isAdmin ? 'var(--teal-700)' : 'var(--slate-700)',
       border:     !active ? '1px solid var(--slate-200)' : isAdmin ? '1px solid var(--teal-200)' : '1px solid var(--slate-200)',
     }}>
-      {role === 'Admin' ? 'Administrator' : 'Operator'}
+      {isAdmin ? 'Administrator' : 'Operator'}
     </span>
   );
 }
@@ -155,12 +146,6 @@ const btnPrimary: React.CSSProperties = {
   borderRadius: 'var(--radius-md)', padding: '10px 20px',
   fontFamily: 'var(--font-ui)', fontWeight: 700, fontSize: 14.5, cursor: 'pointer',
 };
-const btnSecondary: React.CSSProperties = {
-  background: 'transparent', color: 'var(--text-body)',
-  border: '1.5px solid var(--border-default)',
-  borderRadius: 'var(--radius-md)', padding: '10px 20px',
-  fontFamily: 'var(--font-ui)', fontWeight: 600, fontSize: 14.5, cursor: 'pointer',
-};
 const btnDanger: React.CSSProperties = {
   background: 'var(--red-50)', color: 'var(--red-600)', border: '1.5px solid var(--red-100)',
   borderRadius: 'var(--radius-md)', padding: '10px 20px',
@@ -211,47 +196,50 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-/* ── default data ─────────────────────────────────────── */
-
-const DEFAULT_USERS: UserData[] = [
-  { id: 'usr1', fullName: 'Jan Kowalski',     stanowisko: 'Lekarz kardiolog', systemRole: 'Operator', password: '', locationIds: ['loc1', 'loc3'], active: true },
-  { id: 'usr2', fullName: 'Anna Nowak',       stanowisko: 'Recepcjonistka',   systemRole: 'Operator', password: '', locationIds: ['loc1', 'loc2'], active: true },
-  { id: 'usr3', fullName: 'Piotr Wiśniewski', stanowisko: 'Administrator IT', systemRole: 'Admin',    password: '', locationIds: [], active: true },
-];
-
 /* ── main component ───────────────────────────────────── */
 
 export default function AdminUsers({ addOpen: addPanelOpen = false, onAddClose, searchQuery = '' }: { addOpen?: boolean; onAddClose?: () => void; searchQuery?: string }) {
-  const [locations, setLocations] = useState<Location[]>(() => {
-    const saved = localStorage.getItem('eque_locations');
-    if (saved) return JSON.parse(saved);
-    return [
-      { id: 'loc1', name: 'Hol Główny',              userIds: ['usr1', 'usr2'], active: true },
-      { id: 'loc2', name: 'Okienko Rejestracji 1',   userIds: ['usr2'], active: true },
-      { id: 'loc3', name: 'Gabinet Kardiologiczny 12', userIds: ['usr1', 'usr3'], active: true },
-    ];
-  });
+  const [users, setUsers] = useState<UserResponse[]>([]);
+  const [locations, setLocations] = useState<LocationResponse[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const [users, setUsers] = useState<UserData[]>(() => {
-    const saved = localStorage.getItem('eque_users');
-    if (!saved) return DEFAULT_USERS;
-    const parsed = JSON.parse(saved) as UserData[];
-    return parsed.map(u => ({
-      ...u,
-      stanowisko: u.stanowisko ?? (u as unknown as Record<string, string>).role ?? '',
-      systemRole: u.systemRole ?? 'Operator',
-      locationIds: u.locationIds ?? [],
-      active: u.active ?? true,
-    }));
-  });
+  const refetch = useCallback(async () => {
+    try {
+      const [u, l] = await Promise.all([
+        api.get<UserResponse[]>('/admin/users'),
+        api.get<LocationResponse[]>('/admin/locations'),
+      ]);
+      setUsers(u);
+      setLocations(l);
+    } catch {
+      // zachowaj ostatnio znane dane — kolejny poll spróbuje ponownie
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
-  /* simulated statuses — one random flip every 8s */
-  const [statuses, setStatuses] = useState<Record<string, OnlineStatus>>(() =>
-    Object.fromEntries(users.map(u => [u.id, randomStatus()]))
-  );
+  useEffect(() => {
+    refetch();
+    const id = setInterval(refetch, POLL_INTERVAL_MS);
+    return () => clearInterval(id);
+  }, [refetch]);
+
+  /* simulowana obecność — patrz komentarz przy randomStatus() */
+  const [statuses, setStatuses] = useState<Record<string, OnlineStatus>>({});
+  useEffect(() => {
+    setStatuses(prev => {
+      let changed = false;
+      const next = { ...prev };
+      for (const u of users) {
+        if (!(u.id in next)) { next[u.id] = randomStatus(); changed = true; }
+      }
+      return changed ? next : prev;
+    });
+  }, [users]);
   useEffect(() => {
     const id = setInterval(() => {
       setStatuses(prev => {
+        if (users.length === 0) return prev;
         const next = { ...prev };
         const key = users[Math.floor(Math.random() * users.length)]?.id;
         if (key) next[key] = randomStatus();
@@ -262,87 +250,96 @@ export default function AdminUsers({ addOpen: addPanelOpen = false, onAddClose, 
   }, [users]);
 
   /* add panel — controlled by parent */
-  const [newName, setNewName] = useState('');
-  const [newStanowisko, setNewStanowisko] = useState('');
-  const [newSystemRole, setNewSystemRole] = useState<SystemRole>('Operator');
+  const [newUsername, setNewUsername] = useState('');
+  const [newFullName, setNewFullName] = useState('');
+  const [newPosition, setNewPosition] = useState('');
+  const [newRole, setNewRole] = useState<Role>('OPERATOR');
   const [newPassword, setNewPassword] = useState('');
 
   /* edit panel — password input is always separate and starts empty */
-  const [editUser, setEditUser] = useState<UserData | null>(null);
+  const [editUser, setEditUser] = useState<UserResponse | null>(null);
   const [editPasswordInput, setEditPasswordInput] = useState('');
 
-  const saveUsers = (updated: UserData[]) => {
-    setUsers(updated);
-    localStorage.setItem('eque_users', JSON.stringify(updated));
-  };
-  const saveLocations = (updated: Location[]) => {
-    setLocations(updated);
-    localStorage.setItem('eque_locations', JSON.stringify(updated));
-  };
-
-  const openEdit = (user: UserData) => {
+  const openEdit = (user: UserResponse) => {
     setEditUser({ ...user });
     setEditPasswordInput(''); // always start empty — never reveal stored password
   };
 
-  const handleAdd = () => {
-    if (!newName.trim()) return;
-    const newUser: UserData = {
-      id: Date.now().toString(),
-      fullName: newName.trim(),
-      stanowisko: newStanowisko.trim(),
-      systemRole: newSystemRole,
-      password: newPassword,
-      locationIds: [],
-      active: true,
-    };
-    saveUsers([...users, newUser]);
-    setStatuses(prev => ({ ...prev, [newUser.id]: 'online' }));
-    onAddClose?.();
-    setNewName(''); setNewStanowisko(''); setNewSystemRole('Operator'); setNewPassword('');
+  const resetAddForm = () => {
+    setNewUsername(''); setNewFullName(''); setNewPosition(''); setNewRole('OPERATOR'); setNewPassword('');
   };
 
-  const handleSaveEdit = () => {
-    if (!editUser) return;
-    const toSave: UserData = {
-      ...editUser,
-      // only update password if user actually typed something
-      password: editPasswordInput.trim() !== '' ? editPasswordInput : editUser.password,
-    };
-    saveUsers(users.map(u => u.id === toSave.id ? toSave : u));
-    const updatedLocs = locations.map(l => {
-      const filtered = (l.userIds ?? []).filter(id => id !== toSave.id);
-      if (toSave.locationIds.includes(l.id)) filtered.push(toSave.id);
-      return { ...l, userIds: Array.from(new Set(filtered)) };
-    });
-    saveLocations(updatedLocs);
-    setEditUser(null);
-  };
-
-  const handleDelete = () => {
-    if (!editUser) return;
-    if (!window.confirm(`Usunąć użytkownika "${editUser.fullName}"?`)) return;
-    saveUsers(users.filter(u => u.id !== editUser.id));
-    saveLocations(locations.map(l => ({ ...l, userIds: (l.userIds ?? []).filter(id => id !== editUser.id) })));
-    setEditUser(null);
-  };
-
-  const handleToggleActive = (user: UserData) => {
-    if (user.active) {
-      if (!window.confirm(`Czy na pewno chcesz dezaktywować konto "${user.fullName}"? Zostanie odłączone od przypisanych lokalizacji.`)) return;
-      saveUsers(users.map(u => u.id === user.id ? { ...u, active: false, locationIds: [] } : u));
-      saveLocations(locations.map(l => ({ ...l, userIds: (l.userIds ?? []).filter(id => id !== user.id) })));
-    } else {
-      saveUsers(users.map(u => u.id === user.id ? { ...u, active: true } : u));
+  const handleAdd = async () => {
+    if (!newUsername.trim() || !newFullName.trim() || !newPassword) return;
+    try {
+      const created = await api.post<UserResponse>('/admin/users', {
+        username: newUsername.trim(),
+        full_name: newFullName.trim(),
+        position: newPosition.trim() || null,
+        role: newRole,
+        password: newPassword,
+        location_ids: [],
+      });
+      setUsers(prev => [...prev, created]);
+      setStatuses(prev => ({ ...prev, [created.id]: 'online' }));
+      onAddClose?.();
+      resetAddForm();
+    } catch (err) {
+      alertDialog(err instanceof ApiError ? err.message : 'Nie udało się dodać użytkownika.', { title: 'Błąd', tone: 'danger' });
     }
   };
 
-  /* fix 1: all locations for a user, comma-separated */
-  const allLocationNames = (u: UserData) =>
-    locations.filter(l => u.locationIds.includes(l.id)).map(l => l.name);
+  const handleSaveEdit = async () => {
+    if (!editUser) return;
+    try {
+      const updated = await api.put<UserResponse>(`/admin/users/${editUser.id}`, {
+        username: editUser.username,
+        full_name: editUser.full_name,
+        position: editUser.position,
+        role: editUser.role,
+        password: editPasswordInput.trim() !== '' ? editPasswordInput : undefined,
+        location_ids: editUser.location_ids,
+      });
+      setUsers(prev => prev.map(u => u.id === updated.id ? updated : u));
+      setEditUser(null);
+    } catch (err) {
+      alertDialog(err instanceof ApiError ? err.message : 'Nie udało się zapisać zmian.', { title: 'Błąd', tone: 'danger' });
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!editUser) return;
+    if (!(await confirmDialog(`Usunąć użytkownika "${editUser.full_name}"?`, { title: 'Usuń użytkownika', tone: 'danger', confirmLabel: 'Usuń' }))) return;
+    try {
+      await api.del(`/admin/users/${editUser.id}`);
+      setUsers(prev => prev.filter(u => u.id !== editUser.id));
+      setEditUser(null);
+    } catch (err) {
+      alertDialog(err instanceof ApiError ? err.message : 'Nie udało się usunąć użytkownika.', { title: 'Błąd', tone: 'danger' });
+    }
+  };
+
+  const handleToggleActive = async (user: UserResponse) => {
+    if (user.is_active) {
+      const ok = await confirmDialog(
+        `Czy na pewno chcesz dezaktywować konto "${user.full_name}"? Zostanie odłączone od przypisanych lokalizacji.`,
+        { title: 'Dezaktywuj konto', tone: 'danger', confirmLabel: 'Dezaktywuj' }
+      );
+      if (!ok) return;
+    }
+    try {
+      const updated = await api.post<UserResponse>(`/admin/users/${user.id}/${user.is_active ? 'deactivate' : 'activate'}`);
+      setUsers(prev => prev.map(u => u.id === updated.id ? updated : u));
+    } catch (err) {
+      alertDialog(err instanceof ApiError ? err.message : 'Nie udało się zmienić statusu konta.', { title: 'Błąd', tone: 'danger' });
+    }
+  };
+
+  const allLocationNames = (u: UserResponse) =>
+    locations.filter(l => u.location_ids.includes(l.id)).map(l => l.name);
 
   const visibleUsers = searchQuery.trim()
-    ? users.filter(u => u.fullName.toLowerCase().includes(searchQuery.trim().toLowerCase()))
+    ? users.filter(u => u.full_name.toLowerCase().includes(searchQuery.trim().toLowerCase()))
     : users;
 
   /* ── render ────────────────────────────────────────── */
@@ -361,7 +358,7 @@ export default function AdminUsers({ addOpen: addPanelOpen = false, onAddClose, 
           <span>Pracownik</span><span>Lokalizacja</span><span>Rola</span><span>Status</span><span></span>
         </div>
 
-        {visibleUsers.length === 0 && (
+        {!loading && visibleUsers.length === 0 && (
           <div style={{ padding: 36, textAlign: 'center', fontFamily: 'var(--font-ui)', color: 'var(--text-muted)', fontSize: 15 }}>
             {users.length === 0 ? 'Brak dodanych pracowników.' : 'Brak pracowników pasujących do wyszukiwania.'}
           </div>
@@ -369,10 +366,10 @@ export default function AdminUsers({ addOpen: addPanelOpen = false, onAddClose, 
 
         {visibleUsers.map((user, i) => {
           const status = statuses[user.id] ?? 'offline';
-          const locNames = allLocationNames(user); // fix 1: all locations
-          const isAdmin = user.systemRole === 'Admin';
+          const locNames = allLocationNames(user);
+          const isAdmin = user.role === 'ADMIN';
 
-          const badge = !user.active
+          const badge = !user.is_active
             ? { tone: 'neutral' as const, label: 'Dezaktywowany' }
             : status === 'online' ? { tone: 'success' as const, label: 'Online' }
             : status === 'away' ? { tone: 'warning' as const, label: 'Zaraz wracam' }
@@ -384,23 +381,21 @@ export default function AdminUsers({ addOpen: addPanelOpen = false, onAddClose, 
               style={{
                 display: 'grid', gridTemplateColumns: '2fr 1.4fr 0.9fr 1fr 96px',
                 gap: 12, alignItems: 'center', padding: '17px 24px',
-                background: user.active ? 'transparent' : 'var(--surface-sunken)',
+                background: user.is_active ? 'transparent' : 'var(--surface-sunken)',
                 borderBottom: i < visibleUsers.length - 1 ? '1px solid var(--border-subtle)' : 'none',
                 transition: 'background var(--dur-base) var(--ease-out)',
               }}
             >
               {/* Avatar + name */}
               <div style={{ display: 'flex', alignItems: 'center', gap: 14, minWidth: 0 }}>
-                <Avatar name={user.fullName} status={status} active={user.active} size={44} />
+                <Avatar name={user.full_name} status={status} active={user.is_active} size={44} />
                 <div style={{ minWidth: 0 }}>
-                  <div style={{ fontFamily: 'var(--font-ui)', fontWeight: 700, fontSize: 15.5, color: user.active ? 'var(--text-strong)' : 'var(--text-faint)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {user.fullName}
+                  <div style={{ fontFamily: 'var(--font-ui)', fontWeight: 700, fontSize: 15.5, color: user.is_active ? 'var(--text-strong)' : 'var(--text-faint)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {user.full_name}
                   </div>
-                  {user.stanowisko && (
-                    <div style={{ fontFamily: 'var(--font-ui)', fontSize: 13, color: 'var(--text-muted)', marginTop: 2 }}>
-                      {user.stanowisko}
-                    </div>
-                  )}
+                  <div style={{ fontFamily: 'var(--font-ui)', fontSize: 13, color: 'var(--text-muted)', marginTop: 2 }}>
+                    {user.position || `@${user.username}`}
+                  </div>
                 </div>
               </div>
 
@@ -460,7 +455,7 @@ export default function AdminUsers({ addOpen: addPanelOpen = false, onAddClose, 
               </div>
 
               {/* Role badge */}
-              <div><RoleBadge role={user.systemRole} active={user.active} /></div>
+              <div><RoleBadge role={user.role} active={user.is_active} /></div>
 
               {/* Status badge */}
               <div><StatusBadge tone={badge.tone}>{badge.label}</StatusBadge></div>
@@ -468,9 +463,9 @@ export default function AdminUsers({ addOpen: addPanelOpen = false, onAddClose, 
               {/* Actions: deactivate switch + edit */}
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6 }}>
                 <Switch
-                  checked={user.active}
+                  checked={user.is_active}
                   onChange={() => handleToggleActive(user)}
-                  ariaLabel={user.active ? `Dezaktywuj konto ${user.fullName}` : `Aktywuj konto ${user.fullName}`}
+                  ariaLabel={user.is_active ? `Dezaktywuj konto ${user.full_name}` : `Aktywuj konto ${user.full_name}`}
                 />
                 <button
                   onClick={() => openEdit(user)}
@@ -496,7 +491,7 @@ export default function AdminUsers({ addOpen: addPanelOpen = false, onAddClose, 
       </div>
 
       {/* ── Add panel ─────────────────────────────────── */}
-      <SlidePanel title="Nowy użytkownik" open={addPanelOpen} onClose={() => onAddClose?.()} footer={
+      <SlidePanel title="Nowy użytkownik" open={addPanelOpen} onClose={() => { onAddClose?.(); resetAddForm(); }} footer={
         <>
           <button style={btnPrimary} onClick={handleAdd}
             onMouseEnter={e => { e.currentTarget.style.background = 'var(--brand-hover)'; }}
@@ -507,24 +502,32 @@ export default function AdminUsers({ addOpen: addPanelOpen = false, onAddClose, 
       }>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
           <Field label="Imię i nazwisko">
-            <input style={inputStyle} type="text" value={newName} onChange={e => setNewName(e.target.value)}
+            <input style={inputStyle} type="text" value={newFullName} onChange={e => setNewFullName(e.target.value)}
               placeholder="np. Anna Nowak"
               onFocus={e => { e.currentTarget.style.borderColor = 'var(--focus-ring)'; }}
               onBlur={e => { e.currentTarget.style.borderColor = 'var(--border-default)'; }} />
           </Field>
+          <Field label="Nazwa użytkownika (login)">
+            <input style={inputStyle} type="text" value={newUsername} onChange={e => setNewUsername(e.target.value)}
+              placeholder="np. anna.nowak"
+              onFocus={e => { e.currentTarget.style.borderColor = 'var(--focus-ring)'; }}
+              onBlur={e => { e.currentTarget.style.borderColor = 'var(--border-default)'; }} />
+          </Field>
           <Field label="Stanowisko (opcjonalnie)">
-            <input style={inputStyle} type="text" value={newStanowisko} onChange={e => setNewStanowisko(e.target.value)}
+            <input style={inputStyle} type="text" value={newPosition} onChange={e => setNewPosition(e.target.value)}
               placeholder="np. Recepcjonistka"
               onFocus={e => { e.currentTarget.style.borderColor = 'var(--focus-ring)'; }}
               onBlur={e => { e.currentTarget.style.borderColor = 'var(--border-default)'; }} />
           </Field>
           <Field label="Rola systemowa">
-            <select style={inputStyle} value={newSystemRole} onChange={e => setNewSystemRole(e.target.value as SystemRole)}
-              onFocus={e => { e.currentTarget.style.borderColor = 'var(--focus-ring)'; }}
-              onBlur={e => { e.currentTarget.style.borderColor = 'var(--border-default)'; }}>
-              <option value="Operator">Operator</option>
-              <option value="Admin">Administrator</option>
-            </select>
+            <Select
+              value={newRole}
+              onChange={v => setNewRole(v as Role)}
+              options={[
+                { value: 'OPERATOR', label: 'Operator' },
+                { value: 'ADMIN', label: 'Administrator' },
+              ]}
+            />
           </Field>
           <Field label="Hasło">
             <input style={inputStyle} type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)}
@@ -550,11 +553,11 @@ export default function AdminUsers({ addOpen: addPanelOpen = false, onAddClose, 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
             {/* Avatar preview */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '16px 18px', background: 'var(--surface-sunken)', borderRadius: 'var(--radius-md)' }}>
-              <Avatar name={editUser.fullName || '?'} status={statuses[editUser.id] ?? 'offline'} active={editUser.active} size={48} />
+              <Avatar name={editUser.full_name || '?'} status={statuses[editUser.id] ?? 'offline'} active={editUser.is_active} size={48} />
               <div style={{ minWidth: 0 }}>
-                <div style={{ fontFamily: 'var(--font-ui)', fontWeight: 700, fontSize: 16, color: editUser.active ? 'var(--text-strong)' : 'var(--text-faint)' }}>{editUser.fullName || '—'}</div>
+                <div style={{ fontFamily: 'var(--font-ui)', fontWeight: 700, fontSize: 16, color: editUser.is_active ? 'var(--text-strong)' : 'var(--text-faint)' }}>{editUser.full_name || '—'}</div>
                 <div style={{ marginTop: 5 }}>
-                  {editUser.active ? (
+                  {editUser.is_active ? (
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                       <span style={{ width: 8, height: 8, borderRadius: '50%', background: STATUS_COLOR[statuses[editUser.id] ?? 'offline'], display: 'inline-block' }} />
                       <span style={{ fontFamily: 'var(--font-ui)', fontSize: 13, color: 'var(--text-muted)' }}>
@@ -569,40 +572,46 @@ export default function AdminUsers({ addOpen: addPanelOpen = false, onAddClose, 
             </div>
 
             <Field label="Imię i nazwisko">
-              <input style={inputStyle} type="text" value={editUser.fullName}
-                onChange={e => setEditUser({ ...editUser, fullName: e.target.value })}
+              <input style={inputStyle} type="text" value={editUser.full_name}
+                onChange={e => setEditUser({ ...editUser, full_name: e.target.value })}
+                onFocus={e => { e.currentTarget.style.borderColor = 'var(--focus-ring)'; }}
+                onBlur={e => { e.currentTarget.style.borderColor = 'var(--border-default)'; }} />
+            </Field>
+
+            <Field label="Nazwa użytkownika (login)">
+              <input style={inputStyle} type="text" value={editUser.username}
+                onChange={e => setEditUser({ ...editUser, username: e.target.value })}
                 onFocus={e => { e.currentTarget.style.borderColor = 'var(--focus-ring)'; }}
                 onBlur={e => { e.currentTarget.style.borderColor = 'var(--border-default)'; }} />
             </Field>
 
             <Field label="Stanowisko">
-              <input style={inputStyle} type="text" value={editUser.stanowisko}
-                onChange={e => setEditUser({ ...editUser, stanowisko: e.target.value })}
+              <input style={inputStyle} type="text" value={editUser.position ?? ''}
+                onChange={e => setEditUser({ ...editUser, position: e.target.value })}
                 placeholder="np. Recepcjonistka"
                 onFocus={e => { e.currentTarget.style.borderColor = 'var(--focus-ring)'; }}
                 onBlur={e => { e.currentTarget.style.borderColor = 'var(--border-default)'; }} />
             </Field>
 
             <Field label="Rola systemowa">
-              <select style={inputStyle}
-                value={editUser.systemRole}
-                onChange={e => {
-                  const role = e.target.value as SystemRole;
+              <Select
+                value={editUser.role}
+                onChange={v => {
+                  const role = v as Role;
                   setEditUser({
                     ...editUser,
-                    systemRole: role,
-                    /* fix 2: admin has no locations — clear them */
-                    locationIds: role === 'Admin' ? [] : editUser.locationIds,
+                    role,
+                    /* admin ma dostęp globalny — czyścimy przypisania */
+                    location_ids: role === 'ADMIN' ? [] : editUser.location_ids,
                   });
                 }}
-                onFocus={e => { e.currentTarget.style.borderColor = 'var(--focus-ring)'; }}
-                onBlur={e => { e.currentTarget.style.borderColor = 'var(--border-default)'; }}>
-                <option value="Operator">Operator</option>
-                <option value="Admin">Administrator</option>
-              </select>
+                options={[
+                  { value: 'OPERATOR', label: 'Operator' },
+                  { value: 'ADMIN', label: 'Administrator' },
+                ]}
+              />
             </Field>
 
-            {/* fix 3: password input always empty — never pre-filled */}
             <Field label="Nowe hasło">
               <input style={inputStyle} type="password"
                 value={editPasswordInput}
@@ -612,12 +621,11 @@ export default function AdminUsers({ addOpen: addPanelOpen = false, onAddClose, 
                 onBlur={e => { e.currentTarget.style.borderColor = 'var(--border-default)'; }} />
             </Field>
 
-            {/* fix 2: hide location checkboxes for admins */}
-            {editUser.systemRole === 'Operator' && (() => {
-              const assignableLocations = locations.filter(l => l.active ?? true);
+            {editUser.role === 'OPERATOR' && (() => {
+              const assignableLocations = locations.filter(l => l.is_active);
               return (
                 <Field label="Przypisane lokalizacje">
-                  {!editUser.active ? (
+                  {!editUser.is_active ? (
                     <p style={{ fontFamily: 'var(--font-ui)', fontSize: 13, color: 'var(--text-faint)', margin: 0 }}>
                       Aktywuj konto, aby przypisać lokalizacje.
                     </p>
@@ -628,15 +636,15 @@ export default function AdminUsers({ addOpen: addPanelOpen = false, onAddClose, 
                           display: 'flex', alignItems: 'center', gap: 12,
                           padding: '12px 16px', cursor: 'pointer',
                           borderBottom: i < assignableLocations.length - 1 ? '1px solid var(--border-subtle)' : 'none',
-                          background: editUser.locationIds.includes(loc.id) ? 'var(--brand-subtle)' : 'transparent',
+                          background: editUser.location_ids.includes(loc.id) ? 'var(--brand-subtle)' : 'transparent',
                         }}>
                           <input type="checkbox"
-                            checked={editUser.locationIds.includes(loc.id)}
+                            checked={editUser.location_ids.includes(loc.id)}
                             onChange={e => {
                               const ids = e.target.checked
-                                ? [...editUser.locationIds, loc.id]
-                                : editUser.locationIds.filter(id => id !== loc.id);
-                              setEditUser({ ...editUser, locationIds: ids });
+                                ? [...editUser.location_ids, loc.id]
+                                : editUser.location_ids.filter(id => id !== loc.id);
+                              setEditUser({ ...editUser, location_ids: ids });
                             }}
                             style={{ accentColor: 'var(--brand)', width: 16, height: 16 }} />
                           <span style={{ fontFamily: 'var(--font-ui)', fontSize: 14.5, fontWeight: 600, color: 'var(--text-body)' }}>{loc.name}</span>
@@ -651,8 +659,7 @@ export default function AdminUsers({ addOpen: addPanelOpen = false, onAddClose, 
               );
             })()}
 
-            {/* fix 2: info for admin */}
-            {editUser.systemRole === 'Admin' && (
+            {editUser.role === 'ADMIN' && (
               <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '14px 16px', background: 'var(--teal-50)', borderRadius: 'var(--radius-md)', border: '1px solid var(--teal-200)' }}>
                 <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="var(--teal-600)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: 1 }}>
                   <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>

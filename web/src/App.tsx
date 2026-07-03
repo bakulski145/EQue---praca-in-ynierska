@@ -7,10 +7,29 @@ import AdminUsers from './components/AdminUsers';
 import AdminSettings from './components/AdminSettings';
 import Sidebar from './components/Sidebar';
 import UserSidebar from './components/UserSidebar';
+import UserHome from './components/UserHome';
 import UserQueue from './components/UserQueue';
+import { api, getToken, clearToken } from './lib/api';
+import { DialogHost } from './lib/dialogs';
+import type { MeResponse } from './lib/apiTypes';
 
 type Role = 'admin' | 'user' | null;
 type Theme = 'light' | 'dark';
+
+/** Sesja wyprowadzona z /auth/me — jedyne trwałe dane to sam token JWT. */
+interface Session {
+  role: Role;
+  fullName: string;
+  locationIds: number[];
+}
+
+function meToSession(me: MeResponse): Session {
+  return {
+    role: me.role === 'ADMIN' ? 'admin' : 'user',
+    fullName: me.full_name,
+    locationIds: me.location_ids,
+  };
+}
 
 const TAB_META: Record<string, { title: string; action: string | null }> = {
   strona_glowna: { title: 'Pulpit',      action: null },
@@ -18,7 +37,7 @@ const TAB_META: Record<string, { title: string; action: string | null }> = {
   lokalizacje:   { title: 'Lokalizacje', action: 'Dodaj lokalizację' },
   uzytkownicy:   { title: 'Użytkownicy', action: 'Dodaj użytkownika' },
   ustawienia:    { title: 'Ustawienia',  action: null },
-  kolejka:       { title: 'Kolejka',     action: null },
+  kolejka:       { title: 'Kolejka na żywo', action: null },
 };
 
 const SEARCHABLE_TABS = new Set(['tablety', 'lokalizacje', 'uzytkownicy']);
@@ -144,13 +163,8 @@ function RefreshOverlay() {
 }
 
 export default function App() {
-  const [role, setRole] = useState<Role>(() => {
-    return (localStorage.getItem('eque_role') as Role) || null;
-  });
-
-  const [userName, setUserName] = useState<string>(() => {
-    return localStorage.getItem('eque_userName') || '';
-  });
+  const [session, setSession] = useState<Session | null>(null);
+  const [checkingSession, setCheckingSession] = useState(true);
 
   const [activeTab, setActiveTab] = useState<string>('strona_glowna');
   const [addOpen, setAddOpen] = useState(false);
@@ -170,20 +184,29 @@ export default function App() {
 
   useEffect(() => () => { if (refreshTimer.current) clearTimeout(refreshTimer.current); }, []);
 
-  const handleLoginSuccess = (loggedRole: 'admin' | 'user', loggedName: string) => {
-    setRole(loggedRole);
-    setUserName(loggedName);
+  // Sesja żyje wyłącznie w pamięci — jedyne co przetrwa przeładowanie strony
+  // to sam token JWT w localStorage. Rola/imię/lokalizacje są za każdym razem
+  // pobierane na nowo z serwera, żeby front nie ufał temu, co sam sobie zapisał.
+  useEffect(() => {
+    const token = getToken();
+    if (!token) {
+      setCheckingSession(false);
+      return;
+    }
+    api.get<MeResponse>('/auth/me')
+      .then(me => setSession(meToSession(me)))
+      .catch(() => clearToken())
+      .finally(() => setCheckingSession(false));
+  }, []);
+
+  const handleLoginSuccess = (me: MeResponse) => {
+    setSession(meToSession(me));
     setActiveTab('strona_glowna');
-    localStorage.setItem('eque_role', loggedRole);
-    localStorage.setItem('eque_userName', loggedName);
   };
 
   const handleLogout = () => {
-    setRole(null);
-    setUserName('');
-    localStorage.removeItem('eque_role');
-    localStorage.removeItem('eque_userName');
-    localStorage.removeItem('eque_token');
+    setSession(null);
+    clearToken();
   };
 
   const switchTab = (tab: string) => {
@@ -201,9 +224,23 @@ export default function App() {
     }, 1000);
   };
 
-  if (!role) {
+  if (checkingSession) {
+    return (
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--surface-page)' }}>
+        <div style={{
+          width: 38, height: 38, borderRadius: '50%',
+          border: '3.5px solid var(--border-subtle)', borderTopColor: 'var(--brand)',
+          animation: 'eque-spin 0.7s linear infinite',
+        }} />
+      </div>
+    );
+  }
+
+  if (!session) {
     return <LoginForm onLoginSuccess={handleLoginSuccess} />;
   }
+
+  const { role, fullName: userName, locationIds } = session;
 
   const meta = TAB_META[activeTab] ?? { title: activeTab, action: null };
   const showSearch = role === 'admin' && SEARCHABLE_TABS.has(activeTab);
@@ -272,13 +309,16 @@ export default function App() {
                 : activeTab === 'ustawienia'  ? <AdminSettings theme={theme} onThemeChange={setTheme} />
                 : placeholder('Pusta zakładka')
               ) : role === 'user' ? (
-                activeTab === 'kolejka' ? <UserQueue key={contentKey} userName={userName} />
-                : placeholder('Strona główna (w przygotowaniu)')
+                activeTab === 'strona_glowna' ? <UserHome key={contentKey} userName={userName} locationIds={locationIds} />
+                : activeTab === 'kolejka'     ? <UserQueue key={contentKey} userName={userName} locationIds={locationIds} />
+                : activeTab === 'ustawienia'  ? <AdminSettings theme={theme} onThemeChange={setTheme} />
+                : placeholder('Pusta zakładka')
               ) : null
             )}
           </div>
         </div>
       </main>
+      <DialogHost />
     </div>
   );
 }
