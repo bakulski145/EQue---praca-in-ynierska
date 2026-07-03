@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:qr_flutter/qr_flutter.dart';
+import '../api_config.dart'; // Importujemy konfigurację API
 
 class KioskQrScreen extends StatefulWidget {
   final String adminToken; // Token JWT uzyskany podczas logowania
@@ -26,7 +27,7 @@ class _KioskQrScreenState extends State<KioskQrScreen> {
   }
 
   Future<void> _pobierzNowyKodQr() async {
-    final apiUrl = Uri.parse('http://localhost:8000/api/v1/kiosk/qr');
+    final apiUrl = Uri.parse(ApiConfig.kioskQrUrl);
 
     try {
       final response = await http.get(

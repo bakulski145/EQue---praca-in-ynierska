@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'kiosk_qr_screen.dart'; // Upewnij się, że importujesz ekran z kroku 2
+import '../api_config.dart'; // Importujemy konfigurację API
 
 class KioskLoginScreen extends StatefulWidget {
   const KioskLoginScreen({super.key});
@@ -27,7 +28,7 @@ class _KioskLoginScreenState extends State<KioskLoginScreen> {
 
     // Pamiętaj: 10.0.2.2 to localhost dla emulatora Androida. 
     // Na prawdziwym urządzeniu musisz podać IP swojego komputera w sieci lokalnej (np. 192.168.x.x)
-    final url = Uri.parse('http://localhost:8000/api/v1/auth/login');
+    final url = Uri.parse(ApiConfig.loginUrl);
 
     try {
       final response = await http.post(
