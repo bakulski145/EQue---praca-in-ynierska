@@ -1,12 +1,18 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:http/http.dart' as http;
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../api_config.dart';
 import '../main.dart';
 import '../services/queue_socket_service.dart';
+import '../theme/eque_theme.dart';
+import '../widgets/eque_card.dart';
+import '../widgets/eque_logo.dart';
+import '../widgets/position_meter.dart';
+import '../widgets/ticket_code.dart';
 
 class QueueStatusScreen extends StatefulWidget {
   final String scannedToken;
@@ -247,7 +253,7 @@ class _QueueStatusScreenState extends State<QueueStatusScreen> {
       channelDescription: 'Informuje, gdy kolejka przesuwa się do przodu',
       importance: Importance.max,
       priority: Priority.high,
-      color: Color(0xFF1877F2),
+      color: EQueColors.brand,
     );
     const NotificationDetails platformChannelSpecifics = NotificationDetails(android: androidPlatformChannelSpecifics);
 
@@ -325,14 +331,14 @@ class _QueueStatusScreenState extends State<QueueStatusScreen> {
   Widget build(BuildContext context) {
     if (_isLoading) {
       return Scaffold(
-        appBar: AppBar(title: const Text('Dołączanie do kolejki...')),
-        body: const Center(
+        appBar: AppBar(title: const EQueBrand(markSize: 26, fontSize: 18)),
+        body: Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              CircularProgressIndicator(),
-              SizedBox(height: 16),
-              Text('Weryfikacja kodu i pobieranie biletu...'),
+              const CircularProgressIndicator(),
+              const SizedBox(height: 16),
+              Text('Weryfikacja kodu i pobieranie biletu...', style: GoogleFonts.manrope(color: EQueColors.textMuted)),
             ],
           ),
         ),
@@ -341,16 +347,16 @@ class _QueueStatusScreenState extends State<QueueStatusScreen> {
 
     if (_errorMessage != null) {
       return Scaffold(
-        appBar: AppBar(title: const Text('Błąd połączenia')),
+        appBar: AppBar(title: const EQueBrand(markSize: 26, fontSize: 18)),
         body: Center(
           child: Padding(
             padding: const EdgeInsets.all(24.0),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                const Icon(Icons.cloud_off, size: 64, color: Colors.redAccent),
+                const Icon(Icons.cloud_off, size: 56, color: EQueColors.queueSkipped),
                 const SizedBox(height: 16),
-                Text(_errorMessage!, textAlign: TextAlign.center, style: const TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)),
+                Text(_errorMessage!, textAlign: TextAlign.center, style: GoogleFonts.manrope(color: EQueColors.queueSkipped, fontWeight: FontWeight.w700, fontSize: 15)),
                 const SizedBox(height: 24),
                 ElevatedButton(
                   onPressed: () {
@@ -366,6 +372,7 @@ class _QueueStatusScreenState extends State<QueueStatusScreen> {
                   },
                   child: const Text('Spróbuj ponownie'),
                 ),
+                const SizedBox(height: 4),
                 TextButton(
                   onPressed: () => Navigator.of(context).pop(),
                   child: const Text('Wróć do skanera'),
@@ -377,139 +384,122 @@ class _QueueStatusScreenState extends State<QueueStatusScreen> {
       );
     }
 
-    String tekstCzasu = "~$_szacowanyCzasMinuty min";
-    double postep = _poczatkoweOsoby > 0 ? _osobyPrzedNami / _poczatkoweOsoby : 0.0;
+    // "Twoja kolej" to jedyny moment z pełnoekranowym, teal tłem — sygnalizuje
+    // "na żywo, działaj teraz", jak `YourTurnScreen` w design systemie.
+    if (_czyWezwano) return _buildTwojaKolej(context);
+
+    final tekstCzasu = "~$_szacowanyCzasMinuty min";
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Status Twojej Wizyty')),
+      appBar: AppBar(title: const EQueBrand(markSize: 26, fontSize: 18)),
       body: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Container(
-            padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.grey.shade200),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.04),
-                  blurRadius: 8,
-                  offset: const Offset(0, 2),
-                ),
-              ],
-            ),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(20.0),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 420),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Text('Twój numer biletowy:', style: TextStyle(fontSize: 14, color: Colors.black54)),
-                Text(
-                  _prawdziwyNumerBiletu ?? '...',
-                  style: const TextStyle(fontSize: 56, fontWeight: FontWeight.w900, color: Color(0xFF1877F2), letterSpacing: 2),
-                ),
-                const Divider(height: 40, thickness: 1),
-                if (!_czyWezwano) ...[
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                EQueCard(
+                  radius: EQueRadii.xl2,
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
                     children: [
-                      if (_osobyPrzedNami == 0) ...[
-                        const Text('JESTEŚ NASTĘPNY', style: TextStyle(fontSize: 11, color: Colors.black54, fontWeight: FontWeight.bold)),
-                        const SizedBox(height: 4),
-                        const Text('Czekaj na wezwanie przez operatora', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87)),
-                      ] else ...[
-                        const Text('STANOWISKO', style: TextStyle(fontSize: 11, color: Colors.black54, fontWeight: FontWeight.bold)),
-                        const SizedBox(height: 4),
-                        const Text('Okienko 3 (Rejestracja)', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87)),
-                      ],
-                      const SizedBox(height: 24),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text('OSOBY PRZED TOBĄ', style: TextStyle(fontSize: 11, color: Colors.black54, fontWeight: FontWeight.bold)),
-                              const SizedBox(height: 4),
-                              Row(
-                                children: [
-                                  const Icon(Icons.people, size: 20, color: Colors.black87),
-                                  const SizedBox(width: 6),
-                                  Text('$_osobyPrzedNami', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: Colors.black87)),
-                                ],
-                              ),
-                            ],
-                          ),
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.end,
-                            children: [
-                              const Text('SZAC. CZAS', style: TextStyle(fontSize: 11, color: Colors.black54, fontWeight: FontWeight.bold)),
-                              const SizedBox(height: 4),
-                              Text(tekstCzasu, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: Color(0xFF1877F2))),
-                            ],
-                          ),
-                        ],
+                      Text(
+                        'TWÓJ BILET',
+                        style: GoogleFonts.manrope(fontSize: 12, fontWeight: FontWeight.w800, letterSpacing: 1.2, color: EQueColors.textFaint),
                       ),
-                      const SizedBox(height: 16),
-                      TweenAnimationBuilder<double>(
-                        tween: Tween<double>(begin: postep, end: postep),
-                        duration: const Duration(milliseconds: 500),
-                        builder: (context, value, child) {
-                          return ClipRRect(
-                            borderRadius: BorderRadius.circular(8),
-                            child: LinearProgressIndicator(
-                              value: value,
-                              minHeight: 12,
-                              backgroundColor: Colors.grey.shade200,
-                              valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF1877F2)),
-                            ),
-                          );
-                        },
-                      ),
+                      const SizedBox(height: 8),
+                      TicketCode(_prawdziwyNumerBiletu ?? '...', size: TicketCodeSize.xl, tone: TicketCodeTone.brand),
                     ],
                   ),
-                ] else ...[
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
-                    decoration: BoxDecoration(
-                      color: Colors.green.shade50,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: Colors.green.shade400, width: 2),
-                    ),
-                    child: const Column(
-                      children: [
-                        Icon(Icons.check_circle, color: Colors.green, size: 64),
-                        SizedBox(height: 16),
-                        Text('TWOJA KOLEJ!', style: TextStyle(fontSize: 28, fontWeight: FontWeight.w900, color: Colors.green)),
-                        SizedBox(height: 8),
-                        Text('Podejdź do punktu obsługi', textAlign: TextAlign.center, style: TextStyle(fontSize: 16, color: Colors.black87, fontWeight: FontWeight.bold)),
-                      ],
-                    ),
+                ),
+                const SizedBox(height: 16),
+                EQueCard(
+                  radius: EQueRadii.xl2,
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _osobyPrzedNami == 0 ? 'Jesteś następny' : 'Czekasz w kolejce',
+                        style: GoogleFonts.spaceGrotesk(fontSize: 18, fontWeight: FontWeight.w700, color: EQueColors.textStrong, letterSpacing: -0.01),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        _osobyPrzedNami == 0
+                            ? 'Czekaj na wezwanie przez operatora'
+                            : 'Powiadomimy Cię, gdy zbliży się Twoja kolej',
+                        style: GoogleFonts.manrope(fontSize: 13.5, color: EQueColors.textMuted),
+                      ),
+                      const SizedBox(height: 20),
+                      PositionMeter(position: _osobyPrzedNami, total: _poczatkoweOsoby, eta: tekstCzasu),
+                    ],
                   ),
-                ],
-                const SizedBox(height: 32),
-                if (!_czyWezwano)
-                  TextButton.icon(
-                    onPressed: _potwierdzOpuszczenieKolejki,
-                    icon: const Icon(Icons.exit_to_app, color: Colors.redAccent),
-                    label: const Text('Zrezygnuj z kolejki', style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)),
-                  )
-                else
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
-                      onPressed: () async {
-                        final prefs = await SharedPreferences.getInstance();
-                        await prefs.remove('aktywny_bilet');
-                        if (!context.mounted) return;
-                        Navigator.of(context).pop();
-                      },
-                      child: const Text('Zakończ wizytę', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                    ),
-                  )
+                ),
+                const SizedBox(height: 24),
+                TextButton.icon(
+                  onPressed: _potwierdzOpuszczenieKolejki,
+                  icon: const Icon(Icons.exit_to_app, size: 18, color: EQueColors.queueSkipped),
+                  label: Text('Zrezygnuj z kolejki', style: GoogleFonts.manrope(color: EQueColors.queueSkipped, fontWeight: FontWeight.w700)),
+                ),
               ],
             ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTwojaKolej(BuildContext context) {
+    return Scaffold(
+      backgroundColor: EQueColors.queueServing,
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
+          child: Column(
+            children: [
+              const EQueBrand(markSize: 26, fontSize: 18, inverse: true),
+              const Spacer(),
+              Container(
+                width: 84,
+                height: 84,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.18), shape: BoxShape.circle),
+                child: const Icon(Icons.notifications_active, size: 40, color: Colors.white),
+              ),
+              const SizedBox(height: 18),
+              Text(
+                'TWOJA KOLEJ',
+                style: GoogleFonts.manrope(fontSize: 14, fontWeight: FontWeight.w800, letterSpacing: 1.6, color: Colors.white.withValues(alpha: 0.85)),
+              ),
+              const SizedBox(height: 10),
+              TicketCode(_prawdziwyNumerBiletu ?? '...', tone: TicketCodeTone.onDark, fontSizeOverride: 84),
+              const SizedBox(height: 12),
+              Text(
+                'Podejdź do punktu obsługi',
+                textAlign: TextAlign.center,
+                style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.w600, fontSize: 20, color: Colors.white),
+              ),
+              const Spacer(),
+              SizedBox(
+                width: double.infinity,
+                height: 52,
+                child: OutlinedButton(
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.white,
+                    side: const BorderSide(color: Colors.white54),
+                  ),
+                  onPressed: () async {
+                    final prefs = await SharedPreferences.getInstance();
+                    await prefs.remove('aktywny_bilet');
+                    if (!context.mounted) return;
+                    Navigator.of(context).pop();
+                  },
+                  child: const Text('Zakończ'),
+                ),
+              ),
+            ],
           ),
         ),
       ),

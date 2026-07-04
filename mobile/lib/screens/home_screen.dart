@@ -1,6 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../kiosk_prefs.dart';
+import '../theme/eque_theme.dart';
+import '../widgets/eque_card.dart';
+import '../widgets/eque_logo.dart';
+import '../widgets/ticket_code.dart';
 import 'scan_screen.dart';
 import 'map_screen.dart';
 import 'kiosk_login_screen.dart';
@@ -62,22 +67,14 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text(
-          'eQue',
-          style: TextStyle(
-            color: Color(0xFF1877F2),
-            fontWeight: FontWeight.bold,
-            fontSize: 24,
-          ),
-        ),
-      ),
+      appBar: AppBar(title: const EQueBrand()),
       body: Center(
         child: Padding(
-          padding: const EdgeInsets.all(16.0),
+          padding: const EdgeInsets.all(24.0),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
+              // Długie przytrzymanie logo = ukryte wejście do konfiguracji kiosku.
               GestureDetector(
                 onLongPress: () {
                   Navigator.push(
@@ -87,77 +84,68 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   );
                 },
-                child: Container(
-                  padding: const EdgeInsets.all(20),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF1877F2).withValues(alpha: 0.1),
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(
-                    Icons.layers,
-                    size: 64,
-                    color: Color(0xFF1877F2),
-                  ),
-                ),
+                child: const EQueLogoMark(size: 84),
               ),
-              const SizedBox(height: 24),
-              const Text(
-                'Witaj w eQue',
-                style: TextStyle(
-                  fontSize: 26,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.black87,
-                ),
-              ),
+              const SizedBox(height: 28),
+              Text('Witaj w eQue', style: Theme.of(context).textTheme.headlineSmall),
               const SizedBox(height: 8),
-              const Text(
+              Text(
                 'Zarządzaj swoim czasem i unikaj kolejek w prosty sposób.',
                 textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 15, color: Colors.black54),
+                style: GoogleFonts.manrope(fontSize: 15, color: EQueColors.textMuted),
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 28),
 
               // --- BANER PRZYWRACAJĄCY AKTYWNY BILET ---
               if (_zapisanyBilet != null) ...[
-                Card(
-                  color: Colors.amber.shade50,
-                  elevation: 0,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    side: BorderSide(color: Colors.amber.shade300, width: 1.5),
-                  ),
-                  child: ListTile(
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    leading: const Icon(Icons.confirmation_number, color: Colors.amber, size: 36),
-                    title: Text(
-                      'Masz aktywny bilet: $_zapisanyBilet',
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black87),
-                    ),
-                    subtitle: const Text(
-                      'Kliknij, aby wrócić do podglądu kolejki.',
-                      style: TextStyle(color: Colors.black54, fontSize: 13),
-                    ),
-                    trailing: const Icon(Icons.arrow_forward_ios, size: 16, color: Colors.amber),
-                    onTap: () async {
-                      await Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          // resumeExisting: dociągamy stan istniejącego biletu przez REST,
-                          // NIE dołączamy do kolejki drugi raz (to utworzyłoby duplikat).
-                          builder: (context) => QueueStatusScreen(scannedToken: _zapisanyBilet!, resumeExisting: true),
+                EQueCard(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                  onTap: () async {
+                    await Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        // resumeExisting: dociągamy stan istniejącego biletu przez REST,
+                        // NIE dołączamy do kolejki drugi raz (to utworzyłoby duplikat).
+                        builder: (context) => QueueStatusScreen(scannedToken: _zapisanyBilet!, resumeExisting: true),
+                      ),
+                    );
+                    // Po powrocie odświeżamy stan, na wypadek gdyby pacjent zrezygnował z kolejki
+                    _sprawdzAktywnyBilet();
+                  },
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 52,
+                        height: 52,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: EQueColors.queueWaitingBg,
+                          borderRadius: BorderRadius.circular(EQueRadii.md),
+                          border: Border.all(color: EQueColors.queueWaitingBorder),
                         ),
-                      );
-                      // Po powrocie odświeżamy stan, na wypadek gdyby pacjent zrezygnował z kolejki
-                      _sprawdzAktywnyBilet();
-                    },
+                        child: TicketCode(_zapisanyBilet!, size: TicketCodeSize.sm, tone: TicketCodeTone.normal),
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text('Masz aktywny bilet', style: GoogleFonts.manrope(fontWeight: FontWeight.w700, fontSize: 15, color: EQueColors.textStrong)),
+                            const SizedBox(height: 2),
+                            Text('Kliknij, aby wrócić do podglądu kolejki.', style: GoogleFonts.manrope(fontSize: 12.5, color: EQueColors.textMuted)),
+                          ],
+                        ),
+                      ),
+                      const Icon(Icons.chevron_right, size: 20, color: EQueColors.queueWaiting),
+                    ],
                   ),
                 ),
                 const SizedBox(height: 16),
               ],
               // -----------------------------------------
 
-              _buildMenuButton(
-                context,
+              _MenuButton(
                 icon: Icons.qr_code_scanner,
                 title: 'Zeskanuj kod QR',
                 subtitle: 'Dołącz do nowej kolejki biletowej',
@@ -171,10 +159,9 @@ class _HomeScreenState extends State<HomeScreen> {
                   _sprawdzAktywnyBilet();
                 },
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 14),
 
-              _buildMenuButton(
-                context,
+              _MenuButton(
                 icon: Icons.map_outlined,
                 title: 'Mapa placówek',
                 subtitle: 'Znajdź najbliższe punkty obsługi',
@@ -191,37 +178,44 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
   }
+}
 
-  Widget _buildMenuButton(
-    BuildContext context, {
-    required IconData icon,
-    required String title,
-    required String subtitle,
-    required VoidCallback onTap,
-  }) {
-    return Card(
-      color: Colors.white,
-      elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: Colors.grey.shade200),
-      ),
-      child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(
-          horizontal: 20,
-          vertical: 12,
-        ),
-        leading: Icon(icon, color: const Color(0xFF1877F2), size: 32),
-        title: Text(
-          title,
-          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-        ),
-        subtitle: Text(
-          subtitle,
-          style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
-        ),
-        trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-        onTap: onTap,
+class _MenuButton extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  const _MenuButton({required this.icon, required this.title, required this.subtitle, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return EQueCard(
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+      onTap: onTap,
+      child: Row(
+        children: [
+          Container(
+            width: 48,
+            height: 48,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(color: EQueColors.brandSubtle, borderRadius: BorderRadius.circular(EQueRadii.md)),
+            child: Icon(icon, color: EQueColors.brand, size: 26),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(title, style: GoogleFonts.manrope(fontWeight: FontWeight.w700, fontSize: 15.5, color: EQueColors.textStrong)),
+                const SizedBox(height: 2),
+                Text(subtitle, style: GoogleFonts.manrope(fontSize: 13, color: EQueColors.textMuted)),
+              ],
+            ),
+          ),
+          const Icon(Icons.chevron_right, size: 20, color: EQueColors.textFaint),
+        ],
       ),
     );
   }

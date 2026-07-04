@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import '../theme/eque_theme.dart';
+import '../widgets/eque_logo.dart';
 import 'queue_status_screen.dart';
 
 class ScanScreen extends StatefulWidget {
@@ -49,15 +51,9 @@ class _ScanScreenState extends State<ScanScreen> {
           content: TextField(
             controller: _tokenController,
             keyboardType: TextInputType.number,
-            decoration: InputDecoration(
+            decoration: const InputDecoration(
               hintText: 'np. 4821',
-              prefixIcon: const Icon(Icons.keyboard, color: Colors.grey),
-              filled: true,
-              fillColor: const Color(0xFFF0F2F5),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(8),
-                borderSide: BorderSide.none,
-              ),
+              prefixIcon: Icon(Icons.keyboard),
             ),
           ),
           actions: [
@@ -82,7 +78,7 @@ class _ScanScreenState extends State<ScanScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Zeskanuj kod QR')),
+      appBar: AppBar(title: const EQueBrand(markSize: 26, fontSize: 18)),
       body: Column(
         children: [
           Expanded(
@@ -90,14 +86,12 @@ class _ScanScreenState extends State<ScanScreen> {
               child: Container(
                 margin: const EdgeInsets.all(24),
                 decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(
-                    color: const Color(0xFF1877F2),
-                    width: 3,
-                  ),
+                  borderRadius: BorderRadius.circular(EQueRadii.xl),
+                  border: Border.all(color: EQueColors.brand, width: 3),
+                  boxShadow: EQueShadows.md,
                 ),
                 child: ClipRRect(
-                  borderRadius: BorderRadius.circular(13),
+                  borderRadius: BorderRadius.circular(EQueRadii.xl - 3),
                   child: MobileScanner(
                     onDetect: (capture) {
                       final List<Barcode> barcodes = capture.barcodes;
@@ -105,7 +99,7 @@ class _ScanScreenState extends State<ScanScreen> {
                         if (barcode.rawValue != null) {
                           // Od razu przekazujemy surowy token z kodu QR
                           _przejdzDoKolejki(barcode.rawValue!);
-                          break; 
+                          break;
                         }
                       }
                     },
@@ -120,22 +114,9 @@ class _ScanScreenState extends State<ScanScreen> {
               children: [
                 Expanded(
                   child: OutlinedButton.icon(
-                    style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      side: const BorderSide(color: Color(0xFF1877F2)),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                    ),
                     onPressed: _pokazOkienkoReczne,
-                    icon: const Icon(Icons.keyboard, color: Color(0xFF1877F2)),
-                    label: const Text(
-                      'Wpisz kod zapisu',
-                      style: TextStyle(
-                        color: Color(0xFF1877F2),
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
+                    icon: const Icon(Icons.keyboard),
+                    label: const Text('Wpisz kod zapisu'),
                   ),
                 ),
               ],

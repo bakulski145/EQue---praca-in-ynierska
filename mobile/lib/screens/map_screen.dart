@@ -3,6 +3,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:http/http.dart' as http;
+import 'package:google_fonts/google_fonts.dart';
+import '../theme/eque_theme.dart';
+import '../widgets/eque_card.dart';
+import '../widgets/eque_logo.dart';
 
 class Placowka {
   final String id;
@@ -90,9 +94,7 @@ class _MapScreenState extends State<MapScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Mapa Placówek'),
-      ),
+      appBar: AppBar(title: const EQueBrand(markSize: 26, fontSize: 18)),
       body: _budujCialoEkranu(),
     );
   }
@@ -100,13 +102,13 @@ class _MapScreenState extends State<MapScreen> {
   Widget _budujCialoEkranu() {
     // Stan 1: Ładowanie danych
     if (_isLoading) {
-      return const Center(
+      return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            CircularProgressIndicator(),
-            SizedBox(height: 16),
-            Text('Pobieranie placówek z API...'),
+            const CircularProgressIndicator(),
+            const SizedBox(height: 16),
+            Text('Pobieranie placówek z API...', style: GoogleFonts.manrope(color: EQueColors.textMuted)),
           ],
         ),
       );
@@ -118,9 +120,9 @@ class _MapScreenState extends State<MapScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.cloud_off, size: 64, color: Colors.redAccent),
+            const Icon(Icons.cloud_off, size: 56, color: EQueColors.queueSkipped),
             const SizedBox(height: 16),
-            Text(_errorMessage!, style: const TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)),
+            Text(_errorMessage!, style: GoogleFonts.manrope(color: EQueColors.queueSkipped, fontWeight: FontWeight.w700)),
             const SizedBox(height: 16),
             ElevatedButton(
               onPressed: () {
@@ -165,7 +167,7 @@ class _MapScreenState extends State<MapScreen> {
                     },
                     child: Icon(
                       Icons.location_on,
-                      color: czyWybrana ? Colors.red : const Color(0xFF1877F2),
+                      color: czyWybrana ? EQueColors.queueSkipped : EQueColors.brand,
                       size: czyWybrana ? 50 : 40,
                     ),
                   ),
@@ -179,40 +181,41 @@ class _MapScreenState extends State<MapScreen> {
             bottom: 16,
             left: 16,
             right: 16,
-            child: Card(
-              color: Colors.white,
-              elevation: 4,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              child: Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Row(
-                  children: [
-                    const Icon(Icons.account_balance, color: Color(0xFF1877F2), size: 36),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            _wybranaPlacowka!.name,
-                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            _wybranaPlacowka!.adress,
-                            style: const TextStyle(color: Colors.black54, fontSize: 13),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            'Aktywne okienka: ${_wybranaPlacowka!.openedWindows}',
-                            style: const TextStyle(color: Colors.green, fontSize: 12, fontWeight: FontWeight.bold),
-                          ),
-                        ],
-                      ),
+            child: EQueCard(
+              padding: const EdgeInsets.all(16.0),
+              child: Row(
+                children: [
+                  Container(
+                    width: 48,
+                    height: 48,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(color: EQueColors.brandSubtle, borderRadius: BorderRadius.circular(EQueRadii.md)),
+                    child: const Icon(Icons.account_balance, color: EQueColors.brand, size: 24),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          _wybranaPlacowka!.name,
+                          style: GoogleFonts.manrope(fontWeight: FontWeight.w700, fontSize: 15.5, color: EQueColors.textStrong),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          _wybranaPlacowka!.adress,
+                          style: GoogleFonts.manrope(color: EQueColors.textMuted, fontSize: 13),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Aktywne okienka: ${_wybranaPlacowka!.openedWindows}',
+                          style: GoogleFonts.manrope(color: EQueColors.queueServed, fontSize: 12, fontWeight: FontWeight.w700),
+                        ),
+                      ],
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ),
           ),

@@ -1287,8 +1287,22 @@ async def delete_location(
     Usuwa lokalizację.
     Kaskada: tablets.location_id=NULL dla przypisanego tabletu,
     wiersze user_locations usuwane przez ON DELETE CASCADE.
+
+    Odmawia usunięcia, jeśli lokalizacja ma jakiekolwiek bilety w historii —
+    tickets.location_id jest NOT NULL, więc SQLAlchemy próbowałoby je
+    wyzerować przy kasowaniu rodzica i baza odrzuciłaby to (NotNullViolation,
+    500). Zamiast tego admin powinien dezaktywować lokalizację, żeby
+    zachować historię kolejki.
     """
     loc = _get_location_or_404(location_id, db)
+
+    has_tickets = db.query(models.Ticket.id).filter(models.Ticket.location_id == location_id).first() is not None
+    if has_tickets:
+        raise HTTPException(
+            status_code=409,
+            detail="Nie można usunąć lokalizacji z historią biletów w kolejce. Dezaktywuj ją zamiast tego.",
+        )
+
     # Odłącz przypisane tablety
     for t in loc.tablets:
         t.location_id = None

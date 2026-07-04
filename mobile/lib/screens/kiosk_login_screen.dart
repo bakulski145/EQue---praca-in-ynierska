@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../kiosk_prefs.dart';
+import '../theme/eque_theme.dart';
+import '../widgets/eque_card.dart';
 import 'kiosk_qr_screen.dart';
 
 class KioskLoginScreen extends StatefulWidget {
@@ -63,47 +66,45 @@ class _KioskLoginScreenState extends State<KioskLoginScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF0F2F5),
-      appBar: AppBar(
-        title: const Text('Konfiguracja Kiosku'),
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black87,
-        elevation: 0,
-      ),
+      appBar: AppBar(title: const Text('Konfiguracja kiosku')),
       body: Center(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24.0),
-          child: Card(
-            elevation: 4,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-            child: Padding(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 420),
+            child: EQueCard(
               padding: const EdgeInsets.all(32.0),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Icon(Icons.tablet_mac, size: 64, color: Color(0xFF1877F2)),
-                  const SizedBox(height: 16),
-                  const Text(
-                    'Parowanie Tabletu',
-                    style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                  Container(
+                    width: 72,
+                    height: 72,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(color: EQueColors.brandSubtle, borderRadius: BorderRadius.circular(EQueRadii.lg)),
+                    child: const Icon(Icons.tablet_mac, size: 36, color: EQueColors.brand),
                   ),
+                  const SizedBox(height: 20),
+                  Text('Parowanie tabletu', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontSize: 22)),
                   const SizedBox(height: 8),
-                  const Text(
+                  Text(
                     'Wprowadź token przypisany do tej lokalizacji w panelu administratora.',
                     textAlign: TextAlign.center,
-                    style: TextStyle(color: Colors.black54, fontSize: 14),
+                    style: GoogleFonts.manrope(color: EQueColors.textMuted, fontSize: 14),
                   ),
-                  const SizedBox(height: 32),
+                  const SizedBox(height: 28),
                   if (_errorMessage != null) ...[
                     Container(
+                      width: double.infinity,
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
-                        color: Colors.red.shade50,
-                        borderRadius: BorderRadius.circular(8),
+                        color: EQueColors.queueSkippedBg,
+                        borderRadius: BorderRadius.circular(EQueRadii.md),
+                        border: Border.all(color: EQueColors.queueSkippedBorder),
                       ),
                       child: Text(
                         _errorMessage!,
-                        style: TextStyle(color: Colors.red.shade700),
+                        style: GoogleFonts.manrope(color: EQueColors.queueSkipped, fontWeight: FontWeight.w600, fontSize: 13.5),
                         textAlign: TextAlign.center,
                       ),
                     ),
@@ -112,27 +113,19 @@ class _KioskLoginScreenState extends State<KioskLoginScreen> {
                   // Jedno pole tekstowe na Pairing Token
                   TextField(
                     controller: _tokenController,
-                    decoration: InputDecoration(
+                    decoration: const InputDecoration(
                       labelText: 'Token urządzenia (Pairing Token)',
                       hintText: 'np. kiosk-rejestracja-123',
-                      prefixIcon: const Icon(Icons.key),
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                      prefixIcon: Icon(Icons.key),
                     ),
                   ),
-                  const SizedBox(height: 32),
+                  const SizedBox(height: 28),
                   SizedBox(
                     width: double.infinity,
-                    height: 50,
+                    height: 56,
                     child: ElevatedButton(
                       onPressed: _przejdzDoKiosku,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF1877F2),
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                      child: const Text('Uruchom Kiosk', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                      child: const Text('Uruchom kiosk'),
                     ),
                   ),
                 ],

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:http/http.dart' as http;
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -8,6 +9,11 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 import '../api_config.dart';
 import '../kiosk_prefs.dart';
 import '../services/kiosk_socket_service.dart';
+import '../theme/eque_theme.dart';
+import '../widgets/eque_card.dart';
+import '../widgets/eque_logo.dart';
+import '../widgets/status_chip.dart';
+import '../widgets/ticket_code.dart';
 import 'kiosk_login_screen.dart';
 
 /// Ekran kiosku: pokazuje stałą literę kolejki lokalizacji (np. "A", tylko
@@ -281,9 +287,11 @@ class _KioskQrScreenState extends State<KioskQrScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF0F2F5),
       body: Center(
-        child: _budujZawartosc(),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
+          child: _budujZawartosc(),
+        ),
       ),
     );
   }
@@ -297,121 +305,94 @@ class _KioskQrScreenState extends State<KioskQrScreen> {
       return Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const Icon(Icons.wifi_off, size: 64, color: Colors.redAccent),
+          const Icon(Icons.wifi_off, size: 64, color: EQueColors.queueSkipped),
           const SizedBox(height: 16),
-          Text(_errorMessage!, style: const TextStyle(color: Colors.redAccent)),
+          Text(_errorMessage!, style: GoogleFonts.manrope(color: EQueColors.queueSkipped, fontWeight: FontWeight.w600)),
         ],
       );
     }
 
     if (!_kioskEnabled) {
-      return Card(
-        elevation: 8,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-        child: Padding(
-          padding: const EdgeInsets.all(48.0),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.pause_circle_outline, size: 72, color: Colors.black45),
-              const SizedBox(height: 24),
-              const Text(
-                'Kolejka została wyłączona',
-                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                'Ten kiosk został wyłączony przez administratora. Włączy się z powrotem automatycznie, bez potrzeby ponownego parowania.',
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 15, color: Colors.black54),
-              ),
-            ],
-          ),
-        ),
+      return _KioskStatusCard(
+        icon: Icons.pause_circle_outline,
+        iconBg: EQueColors.surfaceSunken,
+        iconColor: EQueColors.textFaint,
+        title: 'Kolejka została wyłączona',
+        body: 'Ten kiosk został wyłączony przez administratora. Włączy się z powrotem automatycznie, bez potrzeby ponownego parowania.',
       );
     }
 
     if (!_hasLocation) {
-      return Card(
-        elevation: 8,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-        child: Padding(
-          padding: const EdgeInsets.all(48.0),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const CircularProgressIndicator(),
-              const SizedBox(height: 24),
-              const Text(
-                'Oczekiwanie na przypisanie lokalizacji',
-                style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                'Przypisz ten tablet do lokalizacji w panelu administratora, w zakładce Tablety. Ekran przełączy się automatycznie.',
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 15, color: Colors.black54),
-              ),
-            ],
-          ),
-        ),
+      return _KioskStatusCard(
+        icon: Icons.hourglass_top,
+        iconBg: EQueColors.brandSubtle,
+        iconColor: EQueColors.brand,
+        title: 'Oczekiwanie na przypisanie lokalizacji',
+        body: 'Przypisz ten tablet do lokalizacji w panelu administratora, w zakładce Tablety. Ekran przełączy się automatycznie.',
       );
     }
 
-    return Card(
-      elevation: 8,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-      child: Padding(
-        padding: const EdgeInsets.all(48.0),
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 440),
+      child: EQueCard(
+        radius: EQueRadii.xl2,
+        padding: const EdgeInsets.all(40.0),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            const EQueBrand(markSize: 32, fontSize: 20),
+            const SizedBox(height: 6),
             Text(
               _locationName ?? '',
-              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w600, color: Colors.black54),
+              style: GoogleFonts.manrope(fontSize: 15, fontWeight: FontWeight.w600, color: EQueColors.textMuted),
             ),
-            const SizedBox(height: 4),
-            Text(
-              'Kod kolejki: ${_queueCode ?? '?'}',
-              style: const TextStyle(fontSize: 14, color: Colors.black38, fontWeight: FontWeight.w600),
+            const SizedBox(height: 10),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(color: EQueColors.surfaceSunken, borderRadius: BorderRadius.circular(EQueRadii.pill)),
+              child: Text(
+                'Kod kolejki: ${_queueCode ?? '?'}',
+                style: GoogleFonts.manrope(fontSize: 12.5, color: EQueColors.textMuted, fontWeight: FontWeight.w700),
+              ),
             ),
-            const SizedBox(height: 24),
+            const SizedBox(height: 28),
             if (_acceptingNewTickets) ...[
-              const Text(
-                'Kod zapisu',
-                style: TextStyle(fontSize: 16, color: Colors.black54),
+              Text(
+                'KOD ZAPISU',
+                style: GoogleFonts.manrope(fontSize: 12.5, fontWeight: FontWeight.w800, letterSpacing: 1.2, color: EQueColors.textFaint),
               ),
               const SizedBox(height: 8),
-              Text(
+              TicketCode(
                 _signupCode ?? '····',
-                style: const TextStyle(fontSize: 88, fontWeight: FontWeight.w900, color: Color(0xFF1877F2), letterSpacing: 4),
+                tone: TicketCodeTone.brand,
+                fontSizeOverride: 72,
+                letterSpacing: 6,
               ),
               const SizedBox(height: 16),
-              const Text(
+              Text(
                 'Wpisz ten kod w aplikacji eQue albo zeskanuj kod QR poniżej',
-                style: TextStyle(fontSize: 16, color: Colors.black54),
+                style: GoogleFonts.manrope(fontSize: 15, color: EQueColors.textMuted),
                 textAlign: TextAlign.center,
               ),
-              const SizedBox(height: 32),
+              const SizedBox(height: 28),
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
                   color: Colors.white,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: Colors.grey.shade300, width: 2),
+                  borderRadius: BorderRadius.circular(EQueRadii.xl),
+                  border: Border.all(color: EQueColors.borderSubtle),
+                  boxShadow: EQueShadows.md,
                 ),
                 child: _signupCode != null
                     ? QrImageView(
                         data: _signupCode!,
                         version: QrVersions.auto,
-                        size: 180.0,
+                        size: 176.0,
                         backgroundColor: Colors.white,
                       )
                     : const SizedBox(
-                        width: 180,
-                        height: 180,
+                        width: 176,
+                        height: 176,
                         child: Center(child: CircularProgressIndicator()),
                       ),
               ),
@@ -420,39 +401,117 @@ class _KioskQrScreenState extends State<KioskQrScreen> {
               // QR-a — nie chcemy, żeby ktoś mimo wszystko spróbował dołączyć.
               Container(
                 width: double.infinity,
-                padding: const EdgeInsets.symmetric(vertical: 40, horizontal: 24),
+                padding: const EdgeInsets.symmetric(vertical: 36, horizontal: 24),
                 decoration: BoxDecoration(
-                  color: Colors.amber.shade50,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: Colors.amber.shade300, width: 2),
+                  color: EQueColors.queueWaitingBg,
+                  borderRadius: BorderRadius.circular(EQueRadii.xl),
+                  border: Border.all(color: EQueColors.queueWaitingBorder, width: 1.5),
                 ),
                 child: Column(
                   children: [
-                    Icon(Icons.pause_circle_outline, color: Colors.amber.shade800, size: 56),
-                    const SizedBox(height: 16),
+                    const Icon(Icons.pause_circle_outline, color: EQueColors.queueWaiting, size: 48),
+                    const SizedBox(height: 14),
                     Text(
                       'ZAPISY WSTRZYMANE',
-                      style: TextStyle(fontSize: 26, fontWeight: FontWeight.w900, color: Colors.amber.shade900),
+                      style: GoogleFonts.spaceGrotesk(fontSize: 22, fontWeight: FontWeight.w700, color: EQueColors.queueWaiting, letterSpacing: 0.5),
                     ),
                     const SizedBox(height: 8),
                     Text(
                       'Operator tymczasowo wstrzymał przyjmowanie nowych klientów do tej kolejki.',
                       textAlign: TextAlign.center,
-                      style: TextStyle(fontSize: 15, color: Colors.amber.shade800),
+                      style: GoogleFonts.manrope(fontSize: 14.5, color: EQueColors.amber700),
                     ),
                   ],
                 ),
               ),
-            const Divider(height: 48, thickness: 1),
-            const Text(
-              'AKTUALNIE OBSŁUGIWANY',
-              style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black54),
-            ),
+            const SizedBox(height: 32),
+            _NowServingPanel(ticketCode: _currentTicketCode),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Podświetlony panel "aktualnie obsługiwany" — odwzorowuje sekcję "Teraz
+/// obsługujemy" z kiosku w design systemie: teal tło + pulsujący StatusChip,
+/// albo stonowany pusty stan, gdy nikt nie jest teraz obsługiwany.
+class _NowServingPanel extends StatelessWidget {
+  final String? ticketCode;
+  const _NowServingPanel({required this.ticketCode});
+
+  @override
+  Widget build(BuildContext context) {
+    if (ticketCode == null) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(vertical: 22),
+        decoration: BoxDecoration(color: EQueColors.surfaceSunken, borderRadius: BorderRadius.circular(EQueRadii.xl)),
+        child: Column(
+          children: [
+            Text('AKTUALNIE OBSŁUGIWANY', style: GoogleFonts.manrope(fontSize: 11.5, fontWeight: FontWeight.w800, letterSpacing: 1, color: EQueColors.textFaint)),
             const SizedBox(height: 8),
-            Text(
-              _currentTicketCode ?? '—',
-              style: const TextStyle(fontSize: 40, fontWeight: FontWeight.w900, color: Colors.black87),
+            Text('—', style: GoogleFonts.spaceGrotesk(fontSize: 32, fontWeight: FontWeight.w700, color: EQueColors.textFaint)),
+          ],
+        ),
+      );
+    }
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 24),
+      decoration: BoxDecoration(
+        color: EQueColors.queueServingBg,
+        borderRadius: BorderRadius.circular(EQueRadii.xl),
+        border: Border.all(color: EQueColors.queueServingBorder, width: 2),
+      ),
+      child: Column(
+        children: [
+          const StatusChip(status: QueueStatus.serving),
+          const SizedBox(height: 12),
+          TicketCode(ticketCode!, tone: TicketCodeTone.serving, fontSizeOverride: 44),
+        ],
+      ),
+    );
+  }
+}
+
+/// Karta pełnoekranowego komunikatu kiosku (wyłączony admin / brak lokalizacji).
+class _KioskStatusCard extends StatelessWidget {
+  final IconData icon;
+  final Color iconBg;
+  final Color iconColor;
+  final String title;
+  final String body;
+
+  const _KioskStatusCard({
+    required this.icon,
+    required this.iconBg,
+    required this.iconColor,
+    required this.title,
+    required this.body,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 420),
+      child: EQueCard(
+        radius: EQueRadii.xl2,
+        padding: const EdgeInsets.all(40.0),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 72,
+              height: 72,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(color: iconBg, shape: BoxShape.circle),
+              child: Icon(icon, size: 36, color: iconColor),
             ),
+            const SizedBox(height: 24),
+            Text(title, textAlign: TextAlign.center, style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontSize: 21)),
+            const SizedBox(height: 8),
+            Text(body, textAlign: TextAlign.center, style: GoogleFonts.manrope(fontSize: 14.5, color: EQueColors.textMuted)),
           ],
         ),
       ),
