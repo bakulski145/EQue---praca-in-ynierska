@@ -10,8 +10,9 @@ import UserSidebar from './components/UserSidebar';
 import UserHome from './components/UserHome';
 import UserQueue from './components/UserQueue';
 import { api, getToken, clearToken } from './lib/api';
+import { ws } from './lib/ws';
 import { DialogHost } from './lib/dialogs';
-import type { MeResponse } from './lib/apiTypes';
+import type { MeResponse, RefreshHandle } from './lib/apiTypes';
 
 type Role = 'admin' | 'user' | null;
 type Theme = 'light' | 'dark';
@@ -170,8 +171,7 @@ export default function App() {
   const [addOpen, setAddOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [refreshing, setRefreshing] = useState(false);
-  const [contentKey, setContentKey] = useState(0);
-  const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const contentRef = useRef<RefreshHandle | null>(null);
 
   const [theme, setTheme] = useState<Theme>(() => {
     return (localStorage.getItem('eque_theme') as Theme) || 'light';
@@ -182,22 +182,34 @@ export default function App() {
     localStorage.setItem('eque_theme', theme);
   }, [theme]);
 
-  useEffect(() => () => { if (refreshTimer.current) clearTimeout(refreshTimer.current); }, []);
-
   // Sesja żyje wyłącznie w pamięci — jedyne co przetrwa przeładowanie strony
   // to sam token JWT w localStorage. Rola/imię/lokalizacje są za każdym razem
   // pobierane na nowo z serwera, żeby front nie ufał temu, co sam sobie zapisał.
   useEffect(() => {
-    const token = getToken();
-    if (!token) {
-      setCheckingSession(false);
-      return;
-    }
-    api.get<MeResponse>('/auth/me')
-      .then(me => setSession(meToSession(me)))
-      .catch(() => clearToken())
-      .finally(() => setCheckingSession(false));
+    // setTimeout(…, 0) — sprawdzenie sesji (i setCheckingSession) zawsze woła
+    // się z callbacku timera, nigdy synchronicznie w ciele efektu.
+    const id = setTimeout(() => {
+      const token = getToken();
+      if (!token) {
+        setCheckingSession(false);
+        return;
+      }
+      api.get<MeResponse>('/auth/me')
+        .then(me => setSession(meToSession(me)))
+        .catch(() => clearToken())
+        .finally(() => setCheckingSession(false));
+    }, 0);
+    return () => clearTimeout(id);
   }, []);
+
+  // Jedno długo żyjące połączenie WebSocket na całą sesję (API_SPEC.md sekcja 5) —
+  // admin subskrybuje wszystko, operator tylko swoje lokalizacje.
+  useEffect(() => {
+    if (!session) return;
+    const topics = session.role === 'admin' ? ['admin'] : session.locationIds.map(id => `location:${id}`);
+    ws.connect(topics);
+    return () => ws.disconnect();
+  }, [session]);
 
   const handleLoginSuccess = (me: MeResponse) => {
     setSession(meToSession(me));
@@ -216,12 +228,12 @@ export default function App() {
   };
 
   const handleRefresh = () => {
-    if (refreshing) return;
+    if (refreshing || !contentRef.current) return;
+    // Start fetchu, ZANIM setRefreshing przełączy widok na overlay i odmontuje
+    // aktualny komponent (i jego ref) — obietnica żyje niezależnie od tego.
+    const done = contentRef.current.refetch();
     setRefreshing(true);
-    refreshTimer.current = setTimeout(() => {
-      setRefreshing(false);
-      setContentKey(k => k + 1);
-    }, 1000);
+    done.finally(() => setRefreshing(false));
   };
 
   if (checkingSession) {
@@ -302,15 +314,15 @@ export default function App() {
           <div style={{ maxWidth: 1240, margin: '0 auto', width: '100%' }}>
             {refreshing ? <RefreshOverlay /> : (
               role === 'admin' ? (
-                activeTab === 'strona_glowna' ? <AdminHome key={contentKey} userName={userName} />
-                : activeTab === 'tablety'     ? <AdminDashboard key={contentKey} addOpen={addOpen} onAddClose={() => setAddOpen(false)} searchQuery={searchQuery} />
-                : activeTab === 'lokalizacje' ? <AdminLocations key={contentKey} addOpen={addOpen} onAddClose={() => setAddOpen(false)} searchQuery={searchQuery} />
-                : activeTab === 'uzytkownicy' ? <AdminUsers key={contentKey} addOpen={addOpen} onAddClose={() => setAddOpen(false)} searchQuery={searchQuery} />
+                activeTab === 'strona_glowna' ? <AdminHome ref={contentRef} userName={userName} />
+                : activeTab === 'tablety'     ? <AdminDashboard ref={contentRef} addOpen={addOpen} onAddClose={() => setAddOpen(false)} searchQuery={searchQuery} />
+                : activeTab === 'lokalizacje' ? <AdminLocations ref={contentRef} addOpen={addOpen} onAddClose={() => setAddOpen(false)} searchQuery={searchQuery} />
+                : activeTab === 'uzytkownicy' ? <AdminUsers ref={contentRef} addOpen={addOpen} onAddClose={() => setAddOpen(false)} searchQuery={searchQuery} />
                 : activeTab === 'ustawienia'  ? <AdminSettings theme={theme} onThemeChange={setTheme} />
                 : placeholder('Pusta zakładka')
               ) : role === 'user' ? (
-                activeTab === 'strona_glowna' ? <UserHome key={contentKey} userName={userName} locationIds={locationIds} />
-                : activeTab === 'kolejka'     ? <UserQueue key={contentKey} userName={userName} locationIds={locationIds} />
+                activeTab === 'strona_glowna' ? <UserHome ref={contentRef} userName={userName} locationIds={locationIds} />
+                : activeTab === 'kolejka'     ? <UserQueue ref={contentRef} userName={userName} locationIds={locationIds} />
                 : activeTab === 'ustawienia'  ? <AdminSettings theme={theme} onThemeChange={setTheme} />
                 : placeholder('Pusta zakładka')
               ) : null

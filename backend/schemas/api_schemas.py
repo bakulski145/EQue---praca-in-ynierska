@@ -190,5 +190,6 @@ class UserResponse(BaseModel):
     role: str
     is_active: bool
     location_ids: list[int] = []
+    online: bool = False   # liczone po stronie serwera: now - last_seen_at < 45s (heartbeat przez WS)
 
     model_config = ConfigDict(from_attributes=True)

@@ -126,12 +126,12 @@ app.add_middleware(
 ONLINE_THRESHOLD_SECONDS = 45  # tablet jest "online" jeśli last_seen_at < 45s temu
 
 
-def _is_online(tablet: models.Tablet) -> bool:
-    """Zwraca True jeśli tablet wysłał heartbeat w ciągu ostatnich 45 sekund."""
-    if tablet.last_seen_at is None:
+def _is_online(entity: models.Tablet | models.User) -> bool:
+    """Zwraca True jeśli tablet/użytkownik wysłał heartbeat w ciągu ostatnich 45 sekund."""
+    if entity.last_seen_at is None:
         return False
     now = datetime.now(timezone.utc)
-    last = tablet.last_seen_at
+    last = entity.last_seen_at
     # Zapewnij timezone-aware
     if last.tzinfo is None:
         last = last.replace(tzinfo=timezone.utc)
@@ -175,6 +175,7 @@ def _user_to_response(user: models.User) -> UserResponse:
         role=user.role,
         is_active=user.is_active,
         location_ids=[loc.id for loc in user.locations],
+        online=_is_online(user),
     )
 
 
@@ -362,11 +363,47 @@ async def websocket_endpoint(
             return
         user_id = str(user.id)
         user_role = user.role
+        location_ids = [loc.id for loc in user.locations]
     finally:
         db.close()
 
+    async def _touch_last_seen():
+        """Aktualizuje last_seen_at operatora — wywoływane na connect i przy każdym pingu."""
+        db = SessionLocal()
+        try:
+            db.query(models.User).filter(models.User.id == user.id).update(
+                {"last_seen_at": datetime.now(timezone.utc)}
+            )
+            db.commit()
+        finally:
+            db.close()
+
+    async def _broadcast_presence(status: str):
+        payload = {"user_id": user_id, "status": status}
+        await publish_event(websocket.app.state.redis, "admin", "user.presence", payload)
+        for loc_id in location_ids:
+            await publish_event(websocket.app.state.redis, f"location:{loc_id}", "user.presence", payload)
+
+    async def _clear_last_seen():
+        """
+        Zeruje last_seen_at przy rozłączeniu, żeby REST (_is_online) natychmiast
+        zgadzał się z eventem "offline" — inaczej last_seen_at zostaje świeże
+        jeszcze do ~45s i kolejny fetch/refresh REST nadpisuje stan z powrotem
+        na online, mimo że socket już nie żyje.
+        """
+        db = SessionLocal()
+        try:
+            db.query(models.User).filter(models.User.id == user.id).update(
+                {"last_seen_at": None}
+            )
+            db.commit()
+        finally:
+            db.close()
+
     # 2. Akceptuj połączenie i zarejestruj w managerze
     await ws_manager.connect(websocket)
+    await _touch_last_seen()
+    await _broadcast_presence("online")
     logger.info("WS: użytkownik '%s' (%s) połączony.", username, user_role)
 
     try:
@@ -385,7 +422,8 @@ async def websocket_endpoint(
                 logger.debug("WS: '%s' zasubskrybował: %s", username, topics)
 
             elif msg_type == "ping":
-                # Heartbeat — aktualizacja last_seen_at dla tabletów obsługiwana osobno
+                # Heartbeat — przedłuża last_seen_at o kolejne ~45s okno online
+                await _touch_last_seen()
                 await ws_manager.send_personal(websocket, {"type": "pong"})
 
             else:
@@ -393,10 +431,14 @@ async def websocket_endpoint(
 
     except WebSocketDisconnect:
         ws_manager.disconnect(websocket)
+        await _clear_last_seen()
+        await _broadcast_presence("offline")
         logger.info("WS: użytkownik '%s' rozłączony.", username)
     except Exception as exc:
         logger.error("WS: błąd dla '%s': %s", username, exc)
         ws_manager.disconnect(websocket)
+        await _clear_last_seen()
+        await _broadcast_presence("offline")
 
 
 # ---------------------------------------------------------------------------
@@ -493,6 +535,15 @@ async def join_queue(payload: JoinQueueRequest, request: Request, db: Session = 
 
     db.commit()
     db.refresh(ticket)
+
+    # Powiadomienie panelu operatora/admina — dotąd żadne, operator dowiadywał się
+    # o nowym zgłoszeniu dopiero przy kolejnym pollu REST (do 10s opóźnienia).
+    await publish_event(
+        request.app.state.redis,
+        topic=f"location:{location_id}",
+        event_type="ticket.created",
+        payload={"ticket": _ticket_to_response(ticket).model_dump()},
+    )
 
     estimated_wait_time_minutes = queue_position * 3
 

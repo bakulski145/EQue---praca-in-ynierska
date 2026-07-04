@@ -1,6 +1,7 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, forwardRef, useImperativeHandle } from 'react';
 import { api, ApiError } from '../lib/api';
-import type { LocationResponse, QueueResponse } from '../lib/apiTypes';
+import { ws, type WsMessage } from '../lib/ws';
+import type { LocationResponse, QueueResponse, RefreshHandle } from '../lib/apiTypes';
 import { recordResolved, getActivity } from '../lib/ticketActivity';
 import { alertDialog } from '../lib/dialogs';
 import Select from './ui/Select';
@@ -85,18 +86,26 @@ function EmptyState({ text, hint }: { text: string; hint?: string }) {
 
 /* ── main component ───────────────────────────────────── */
 
-export default function UserQueue({ locationIds }: { userName: string; locationIds: number[] }) {
+const UserQueue = forwardRef<RefreshHandle, { userName: string; locationIds: number[] }>(function UserQueue({ locationIds }, ref) {
   const [allLocations, setAllLocations] = useState<LocationResponse[]>([]);
   const [selectedLocationId, setSelectedLocationId] = useState<number | ''>('');
   const [queue, setQueue] = useState<QueueResponse | null>(null);
   const [tab, setTab] = useState<'oczekujacy' | 'zakonczone'>('oczekujacy');
   const [, bumpActivity] = useState(0); // re-render po recordResolved(), żeby zakładka "Zakończone" od razu pokazała wpis
 
-  useEffect(() => {
-    api.get<LocationResponse[]>('/admin/locations')
-      .then(locs => setAllLocations(locs.filter(l => locationIds.includes(l.id))))
-      .catch(() => {});
+  const fetchLocations = useCallback(async () => {
+    try {
+      const locs = await api.get<LocationResponse[]>('/admin/locations');
+      setAllLocations(locs.filter(l => locationIds.includes(l.id)));
+    } catch {
+      // zachowaj ostatnio znane dane
+    }
   }, [locationIds]);
+
+  useEffect(() => {
+    const id = setTimeout(fetchLocations, 0);
+    return () => clearTimeout(id);
+  }, [fetchLocations]);
 
   const availableLocations = allLocations.filter(l => l.is_active);
 
@@ -109,15 +118,36 @@ export default function UserQueue({ locationIds }: { userName: string; locationI
     }
   }, []);
 
+  const refetch = useCallback(async () => {
+    await fetchLocations();
+    if (selectedLocationId !== '') await refetchQueue(selectedLocationId);
+  }, [fetchLocations, refetchQueue, selectedLocationId]);
+
+  useImperativeHandle(ref, () => ({ refetch }), [refetch]);
+
   useEffect(() => {
-    if (selectedLocationId === '') { setQueue(null); return; }
-    refetchQueue(selectedLocationId);
+    if (selectedLocationId === '') return;
+    const initial = setTimeout(() => refetchQueue(selectedLocationId), 0);
     const id = setInterval(() => refetchQueue(selectedLocationId), POLL_INTERVAL_MS);
-    return () => clearInterval(id);
+    return () => { clearTimeout(initial); clearInterval(id); };
+  }, [selectedLocationId, refetchQueue]);
+
+  /* Nowe zgłoszenie / wezwanie / zakończenie w wybranej lokalizacji — odśwież
+     od razu zamiast czekać na kolejny poll (ticket.*). */
+  useEffect(() => {
+    if (selectedLocationId === '') return;
+    const handler = (msg: WsMessage) => {
+      const locId = (msg.ticket as { location_id?: number } | undefined)?.location_id;
+      if (locId === selectedLocationId) refetchQueue(selectedLocationId);
+    };
+    const offCreated = ws.on('ticket.created', handler);
+    const offUpdated = ws.on('ticket.updated', handler);
+    return () => { offCreated(); offUpdated(); };
   }, [selectedLocationId, refetchQueue]);
 
   const selectLocation = (id: string) => {
     setSelectedLocationId(id ? Number(id) : '');
+    setQueue(null);
     setTab('oczekujacy');
   };
 
@@ -374,4 +404,6 @@ export default function UserQueue({ locationIds }: { userName: string; locationI
       )}
     </div>
   );
-}
+});
+
+export default UserQueue;

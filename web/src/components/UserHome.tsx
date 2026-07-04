@@ -1,6 +1,7 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, forwardRef, useImperativeHandle } from 'react';
 import { api } from '../lib/api';
-import type { LocationResponse, QueueResponse } from '../lib/apiTypes';
+import { ws, type WsMessage } from '../lib/ws';
+import type { LocationResponse, QueueResponse, RefreshHandle } from '../lib/apiTypes';
 import { getActivity } from '../lib/ticketActivity';
 
 const POLL_INTERVAL_MS = 10000;
@@ -109,7 +110,7 @@ const ICON = {
 
 /* ── main component ───────────────────────────────────── */
 
-export default function UserHome({ userName, locationIds }: { userName?: string; locationIds: number[] }) {
+const UserHome = forwardRef<RefreshHandle, { userName?: string; locationIds: number[] }>(function UserHome({ userName, locationIds }, ref) {
   const [myLocations, setMyLocations] = useState<LocationResponse[]>([]);
   const [queues, setQueues] = useState<Record<number, QueueResponse>>({});
   const [, bumpTick] = useState(0);
@@ -130,11 +131,25 @@ export default function UserHome({ userName, locationIds }: { userName?: string;
     bumpTick(n => n + 1); // odśwież też liczniki z ticketActivity (czeka X min, itp.)
   }, [locationIds]);
 
+  useImperativeHandle(ref, () => ({ refetch }), [refetch]);
+
   useEffect(() => {
-    refetch();
+    const initial = setTimeout(refetch, 0);
     const id = setInterval(refetch, POLL_INTERVAL_MS);
-    return () => clearInterval(id);
+    return () => { clearTimeout(initial); clearInterval(id); };
   }, [refetch]);
+
+  /* Nowe zgłoszenie / wezwanie / zakończenie w jednej z Twoich lokalizacji —
+     zamiast czekać na kolejny poll, odśwież kolejkę od razu (ticket.*). */
+  useEffect(() => {
+    const handler = (msg: WsMessage) => {
+      const locId = (msg.ticket as { location_id?: number } | undefined)?.location_id;
+      if (typeof locId === 'number' && locationIds.includes(locId)) refetch();
+    };
+    const offCreated = ws.on('ticket.created', handler);
+    const offUpdated = ws.on('ticket.updated', handler);
+    return () => { offCreated(); offUpdated(); };
+  }, [locationIds, refetch]);
 
   const myActiveLocations = myLocations.filter(l => l.is_active);
 
@@ -251,4 +266,6 @@ export default function UserHome({ userName, locationIds }: { userName?: string;
       </div>
     </div>
   );
-}
+});
+
+export default UserHome;

@@ -51,6 +51,7 @@ export interface UserResponse {
   role: Role;
   is_active: boolean;
   location_ids: number[];
+  online: boolean;
 }
 
 export interface TicketResponse {
@@ -70,4 +71,11 @@ export interface QueueResponse {
   location_id: number;
   waiting: TicketResponse[];
   serving: TicketResponse | null;
+}
+
+/** Uchwyt wystawiany przez zakładki panelu przez useImperativeHandle — pozwala
+ * przyciskowi odświeżania w App.tsx czekać na faktyczne zakończenie fetchu,
+ * zamiast pokazywać spinner przez sztywny czas. */
+export interface RefreshHandle {
+  refetch: () => Promise<void>;
 }

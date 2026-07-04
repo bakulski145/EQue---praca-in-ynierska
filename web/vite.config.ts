@@ -17,6 +17,7 @@ export default defineConfig({
       '/api': {
         target: 'http://host.docker.internal:8000',
         changeOrigin: true,
+        ws: true,
       },
     },
   },

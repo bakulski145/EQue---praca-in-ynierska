@@ -1,6 +1,7 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, forwardRef, useImperativeHandle } from 'react';
 import { api } from '../lib/api';
-import type { TabletResponse, UserResponse, LocationResponse } from '../lib/apiTypes';
+import { ws } from '../lib/ws';
+import type { TabletResponse, UserResponse, LocationResponse, RefreshHandle } from '../lib/apiTypes';
 
 const POLL_INTERVAL_MS = 10000;
 
@@ -107,7 +108,7 @@ const ICON = {
 
 /* ── main component ───────────────────────────────────── */
 
-export default function AdminHome({ userName }: { userName?: string }) {
+const AdminHome = forwardRef<RefreshHandle, { userName?: string }>(function AdminHome({ userName }, ref) {
   const [devices, setDevices] = useState<TabletResponse[]>([]);
   const [users, setUsers] = useState<UserResponse[]>([]);
   const [locations, setLocations] = useState<LocationResponse[]>([]);
@@ -127,29 +128,32 @@ export default function AdminHome({ userName }: { userName?: string }) {
     }
   }, []);
 
+  useImperativeHandle(ref, () => ({ refetch }), [refetch]);
+
   useEffect(() => {
-    refetch();
+    const initial = setTimeout(refetch, 0);
     const id = setInterval(refetch, POLL_INTERVAL_MS);
-    return () => clearInterval(id);
+    return () => { clearTimeout(initial); clearInterval(id); };
   }, [refetch]);
+
+  /* Live status tabletów przez WebSocket (device.status) — patrz AdminDashboard.tsx. */
+  useEffect(() => {
+    const offStatus = ws.on('device.status', msg => {
+      const tabletId = msg.tablet_id as number;
+      const online = msg.online as boolean;
+      setDevices(prev => prev.map(d => d.id === tabletId ? { ...d, online } : d));
+    });
+    const offUpdated = ws.on('device.updated', msg => {
+      const tablet = msg.tablet as TabletResponse;
+      setDevices(prev => prev.map(d => d.id === tablet.id ? tablet : d));
+    });
+    return () => { offStatus(); offUpdated(); };
+  }, []);
 
   const activeDevices = useMemo(() => devices.filter(d => d.is_active), [devices]);
   const activeUsers = useMemo(() => users.filter(u => u.is_active), [users]);
   const activeLocations = useMemo(() => locations.filter(l => l.is_active), [locations]);
-
-  /* Prawdziwe "online teraz" wymaga heartbeatu (last_seen_at), którego backend
-     jeszcze nigdzie nie zapisuje — `online` z API zawsze wróci false, więc
-     liczba zostaje przybliżona lokalnie do czasu aż to się zmieni. */
-  const [onlineNow, setOnlineNow] = useState(0);
-  useEffect(() => {
-    setOnlineNow(Math.round(activeDevices.length * (0.45 + Math.random() * 0.45)));
-  }, [activeDevices.length]);
-  useEffect(() => {
-    const id = setInterval(() => {
-      setOnlineNow(Math.round(activeDevices.length * (0.45 + Math.random() * 0.45)));
-    }, 8000);
-    return () => clearInterval(id);
-  }, [activeDevices.length]);
+  const onlineNow = useMemo(() => activeDevices.filter(d => d.online).length, [activeDevices]);
 
   const issues = useMemo(() => {
     const list: string[] = [];
@@ -242,4 +246,6 @@ export default function AdminHome({ userName }: { userName?: string }) {
       </div>
     </div>
   );
-}
+});
+
+export default AdminHome;

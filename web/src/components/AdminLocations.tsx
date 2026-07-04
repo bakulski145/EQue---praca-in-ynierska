@@ -1,6 +1,7 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, forwardRef, useImperativeHandle } from 'react';
 import { api, ApiError } from '../lib/api';
-import type { LocationResponse, TabletResponse, UserResponse } from '../lib/apiTypes';
+import { ws } from '../lib/ws';
+import type { LocationResponse, TabletResponse, UserResponse, RefreshHandle } from '../lib/apiTypes';
 import { confirmDialog, alertDialog } from '../lib/dialogs';
 import Select from './ui/Select';
 
@@ -150,7 +151,7 @@ interface LocationDraft {
 
 /* ── main component ───────────────────────────────────── */
 
-export default function AdminLocations({ addOpen = false, onAddClose, searchQuery = '' }: { addOpen?: boolean; onAddClose?: () => void; searchQuery?: string }) {
+const AdminLocations = forwardRef<RefreshHandle, { addOpen?: boolean; onAddClose?: () => void; searchQuery?: string }>(function AdminLocations({ addOpen = false, onAddClose, searchQuery = '' }, ref) {
   const [locations, setLocations] = useState<LocationResponse[]>([]);
   const [tablets, setTablets] = useState<TabletResponse[]>([]);
   const [users, setUsers] = useState<UserResponse[]>([]);
@@ -173,11 +174,45 @@ export default function AdminLocations({ addOpen = false, onAddClose, searchQuer
     }
   }, []);
 
+  useImperativeHandle(ref, () => ({ refetch }), [refetch]);
+
   useEffect(() => {
-    refetch();
+    const initial = setTimeout(refetch, 0);
     const id = setInterval(refetch, POLL_INTERVAL_MS);
-    return () => clearInterval(id);
+    return () => { clearTimeout(initial); clearInterval(id); };
   }, [refetch]);
+
+  /* Live-update z WebSocketa (location.* i device.*) — patrz API_SPEC.md sekcja 5. */
+  useEffect(() => {
+    const offLocCreated = ws.on('location.created', msg => {
+      const location = msg.location as LocationResponse;
+      setLocations(prev => prev.some(l => l.id === location.id) ? prev : [...prev, location]);
+    });
+    const offLocUpdated = ws.on('location.updated', msg => {
+      const location = msg.location as LocationResponse;
+      setLocations(prev => prev.map(l => l.id === location.id ? location : l));
+    });
+    const offLocDeleted = ws.on('location.deleted', msg => {
+      const locationId = msg.location_id as number;
+      setLocations(prev => prev.filter(l => l.id !== locationId));
+    });
+    const offTabletUpdated = ws.on('device.updated', msg => {
+      const tablet = msg.tablet as TabletResponse;
+      setTablets(prev => prev.map(t => t.id === tablet.id ? tablet : t));
+    });
+    const offTabletCreated = ws.on('device.created', msg => {
+      const tablet = msg.tablet as TabletResponse;
+      setTablets(prev => prev.some(t => t.id === tablet.id) ? prev : [...prev, tablet]);
+    });
+    const offTabletDeleted = ws.on('device.deleted', msg => {
+      const tabletId = msg.tablet_id as number;
+      setTablets(prev => prev.filter(t => t.id !== tabletId));
+    });
+    return () => {
+      offLocCreated(); offLocUpdated(); offLocDeleted();
+      offTabletUpdated(); offTabletCreated(); offTabletDeleted();
+    };
+  }, []);
 
   const [newName, setNewName] = useState('');
   const [newDescription, setNewDescription] = useState('');
@@ -518,4 +553,6 @@ export default function AdminLocations({ addOpen = false, onAddClose, searchQuer
       </SlidePanel>
     </div>
   );
-}
+});
+
+export default AdminLocations;

@@ -1,10 +1,11 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, forwardRef, useImperativeHandle } from 'react';
 import { api, ApiError } from '../lib/api';
-import type { UserResponse, LocationResponse, Role } from '../lib/apiTypes';
+import { ws } from '../lib/ws';
+import type { UserResponse, LocationResponse, Role, RefreshHandle } from '../lib/apiTypes';
 import { confirmDialog, alertDialog } from '../lib/dialogs';
 import Select from './ui/Select';
 
-type OnlineStatus = 'online' | 'away' | 'offline';
+type OnlineStatus = 'online' | 'offline';
 
 const POLL_INTERVAL_MS = 10000;
 
@@ -24,25 +25,13 @@ const AVATAR_TONES = [
 
 const STATUS_COLOR: Record<OnlineStatus, string> = {
   online:  'var(--green-500)',
-  away:    'var(--amber-500)',
   offline: 'var(--slate-400)',
 };
 
 const STATUS_LABEL: Record<OnlineStatus, string> = {
   online:  'Online',
-  away:    'Zaraz wracam',
   offline: 'Offline',
 };
-
-/* Prawdziwej obecności (kto jest online/away) backend jeszcze nie dostarcza —
-   last_seen_at nigdzie nie jest zapisywane, więc to zostaje symulowane
-   lokalnie do czasu aż backend dostanie realny heartbeat (WS ping). */
-function randomStatus(): OnlineStatus {
-  const r = Math.random();
-  if (r < 0.5) return 'online';
-  if (r < 0.75) return 'away';
-  return 'offline';
-}
 
 /* ── sub-components ───────────────────────────────────── */
 
@@ -198,7 +187,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 /* ── main component ───────────────────────────────────── */
 
-export default function AdminUsers({ addOpen: addPanelOpen = false, onAddClose, searchQuery = '' }: { addOpen?: boolean; onAddClose?: () => void; searchQuery?: string }) {
+const AdminUsers = forwardRef<RefreshHandle, { addOpen?: boolean; onAddClose?: () => void; searchQuery?: string }>(function AdminUsers({ addOpen: addPanelOpen = false, onAddClose, searchQuery = '' }, ref) {
   const [users, setUsers] = useState<UserResponse[]>([]);
   const [locations, setLocations] = useState<LocationResponse[]>([]);
   const [loading, setLoading] = useState(true);
@@ -218,36 +207,38 @@ export default function AdminUsers({ addOpen: addPanelOpen = false, onAddClose, 
     }
   }, []);
 
+  useImperativeHandle(ref, () => ({ refetch }), [refetch]);
+
   useEffect(() => {
-    refetch();
+    // setTimeout(…, 0) zamiast bezpośredniego refetch() w ciele efektu —
+    // refetch() jest zawsze wywoływane z callbacku timera, nigdy synchronicznie.
+    const initial = setTimeout(refetch, 0);
     const id = setInterval(refetch, POLL_INTERVAL_MS);
-    return () => clearInterval(id);
+    return () => { clearTimeout(initial); clearInterval(id); };
   }, [refetch]);
 
-  /* simulowana obecność — patrz komentarz przy randomStatus() */
-  const [statuses, setStatuses] = useState<Record<string, OnlineStatus>>({});
+  /* Live obecność operatorów przez WebSocket (user.presence) — heartbeat z panelu
+     operatora aktualizuje last_seen_at na backendzie, patrz API_SPEC.md sekcja 5. */
   useEffect(() => {
-    setStatuses(prev => {
-      let changed = false;
-      const next = { ...prev };
-      for (const u of users) {
-        if (!(u.id in next)) { next[u.id] = randomStatus(); changed = true; }
-      }
-      return changed ? next : prev;
+    const offPresence = ws.on('user.presence', msg => {
+      const userId = msg.user_id as string;
+      const online = msg.status === 'online';
+      setUsers(prev => prev.map(u => u.id === userId ? { ...u, online } : u));
     });
-  }, [users]);
-  useEffect(() => {
-    const id = setInterval(() => {
-      setStatuses(prev => {
-        if (users.length === 0) return prev;
-        const next = { ...prev };
-        const key = users[Math.floor(Math.random() * users.length)]?.id;
-        if (key) next[key] = randomStatus();
-        return next;
-      });
-    }, 8000);
-    return () => clearInterval(id);
-  }, [users]);
+    const offCreated = ws.on('user.created', msg => {
+      const user = msg.user as UserResponse;
+      setUsers(prev => prev.some(u => u.id === user.id) ? prev : [...prev, user]);
+    });
+    const offUpdated = ws.on('user.updated', msg => {
+      const user = msg.user as UserResponse;
+      setUsers(prev => prev.map(u => u.id === user.id ? user : u));
+    });
+    const offDeleted = ws.on('user.deleted', msg => {
+      const userId = msg.user_id as string;
+      setUsers(prev => prev.filter(u => u.id !== userId));
+    });
+    return () => { offPresence(); offCreated(); offUpdated(); offDeleted(); };
+  }, []);
 
   /* add panel — controlled by parent */
   const [newUsername, setNewUsername] = useState('');
@@ -281,7 +272,6 @@ export default function AdminUsers({ addOpen: addPanelOpen = false, onAddClose, 
         location_ids: [],
       });
       setUsers(prev => [...prev, created]);
-      setStatuses(prev => ({ ...prev, [created.id]: 'online' }));
       onAddClose?.();
       resetAddForm();
     } catch (err) {
@@ -365,14 +355,13 @@ export default function AdminUsers({ addOpen: addPanelOpen = false, onAddClose, 
         )}
 
         {visibleUsers.map((user, i) => {
-          const status = statuses[user.id] ?? 'offline';
+          const status: OnlineStatus = user.online ? 'online' : 'offline';
           const locNames = allLocationNames(user);
           const isAdmin = user.role === 'ADMIN';
 
           const badge = !user.is_active
             ? { tone: 'neutral' as const, label: 'Dezaktywowany' }
             : status === 'online' ? { tone: 'success' as const, label: 'Online' }
-            : status === 'away' ? { tone: 'warning' as const, label: 'Zaraz wracam' }
             : { tone: 'neutral' as const, label: 'Offline' };
 
           return (
@@ -553,15 +542,15 @@ export default function AdminUsers({ addOpen: addPanelOpen = false, onAddClose, 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
             {/* Avatar preview */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '16px 18px', background: 'var(--surface-sunken)', borderRadius: 'var(--radius-md)' }}>
-              <Avatar name={editUser.full_name || '?'} status={statuses[editUser.id] ?? 'offline'} active={editUser.is_active} size={48} />
+              <Avatar name={editUser.full_name || '?'} status={editUser.online ? 'online' : 'offline'} active={editUser.is_active} size={48} />
               <div style={{ minWidth: 0 }}>
                 <div style={{ fontFamily: 'var(--font-ui)', fontWeight: 700, fontSize: 16, color: editUser.is_active ? 'var(--text-strong)' : 'var(--text-faint)' }}>{editUser.full_name || '—'}</div>
                 <div style={{ marginTop: 5 }}>
                   {editUser.is_active ? (
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <span style={{ width: 8, height: 8, borderRadius: '50%', background: STATUS_COLOR[statuses[editUser.id] ?? 'offline'], display: 'inline-block' }} />
+                      <span style={{ width: 8, height: 8, borderRadius: '50%', background: STATUS_COLOR[editUser.online ? 'online' : 'offline'], display: 'inline-block' }} />
                       <span style={{ fontFamily: 'var(--font-ui)', fontSize: 13, color: 'var(--text-muted)' }}>
-                        {STATUS_LABEL[statuses[editUser.id] ?? 'offline']}
+                        {STATUS_LABEL[editUser.online ? 'online' : 'offline']}
                       </span>
                     </div>
                   ) : (
@@ -674,4 +663,6 @@ export default function AdminUsers({ addOpen: addPanelOpen = false, onAddClose, 
       </SlidePanel>
     </div>
   );
-}
+});
+
+export default AdminUsers;

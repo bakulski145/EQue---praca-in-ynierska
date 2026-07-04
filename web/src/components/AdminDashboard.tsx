@@ -1,37 +1,19 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, forwardRef, useImperativeHandle } from 'react';
 import { api, ApiError } from '../lib/api';
-import type { TabletResponse, LocationResponse } from '../lib/apiTypes';
+import { ws } from '../lib/ws';
+import type { TabletResponse, LocationResponse, RefreshHandle } from '../lib/apiTypes';
 import { confirmDialog, alertDialog } from '../lib/dialogs';
 import Select from './ui/Select';
 
-type SimStatus = 'online' | 'offline';
-
 const POLL_INTERVAL_MS = 10000;
 
-interface SimState {
-  status: SimStatus;
-  code: string;
-}
-
-/* ── helpers ─────────────────────────────────────────── */
-
-/* Prawdziwy status online/offline wymaga heartbeatu (last_seen_at), którego
-   backend jeszcze nigdzie nie zapisuje — więc to (i "aktualny kod") zostaje
-   symulowane lokalnie do czasu aż backend dostanie realny heartbeat (WS ping). */
-function randomStatus(): SimStatus {
-  return Math.random() < 0.75 ? 'online' : 'offline';
-}
-
-function randomCode(): string {
-  const letters = ['A', 'B', 'C', 'D'];
-  const letter = letters[Math.floor(Math.random() * letters.length)];
-  const num = Math.floor(Math.random() * 150) + 1;
-  return `${letter}-${String(num).padStart(3, '0')}`;
-}
-
-function initSim(): SimState {
-  const status = randomStatus();
-  return { status, code: status === 'online' ? randomCode() : '—' };
+function formatLastSeen(lastSeenAt: string | null): string {
+  if (!lastSeenAt) return 'Nigdy nie było online';
+  const minutes = Math.max(0, Math.round((Date.now() - new Date(lastSeenAt).getTime()) / 60000));
+  if (minutes < 1) return 'Widziano przed chwilą';
+  if (minutes < 60) return `Widziano ${minutes} min temu`;
+  const hours = Math.round(minutes / 60);
+  return `Widziano ${hours} godz. temu`;
 }
 
 /* ── sub-components ───────────────────────────────────── */
@@ -186,7 +168,7 @@ const labelStyle: React.CSSProperties = {
 
 /* ── main component ───────────────────────────────────── */
 
-export default function AdminDashboard({ addOpen = false, onAddClose, searchQuery = '' }: { addOpen?: boolean; onAddClose?: () => void; searchQuery?: string }) {
+const AdminDashboard = forwardRef<RefreshHandle, { addOpen?: boolean; onAddClose?: () => void; searchQuery?: string }>(function AdminDashboard({ addOpen = false, onAddClose, searchQuery = '' }, ref) {
   const [locations, setLocations] = useState<LocationResponse[]>([]);
   const [devices, setDevices] = useState<TabletResponse[]>([]);
   const [loading, setLoading] = useState(true);
@@ -206,35 +188,38 @@ export default function AdminDashboard({ addOpen = false, onAddClose, searchQuer
     }
   }, []);
 
+  useImperativeHandle(ref, () => ({ refetch }), [refetch]);
+
   useEffect(() => {
-    refetch();
+    // setTimeout(…, 0) zamiast bezpośredniego refetch() w ciele efektu —
+    // refetch() jest zawsze wywoływane z callbacku timera, nigdy synchronicznie.
+    const initial = setTimeout(refetch, 0);
     const id = setInterval(refetch, POLL_INTERVAL_MS);
-    return () => clearInterval(id);
+    return () => { clearTimeout(initial); clearInterval(id); };
   }, [refetch]);
 
-  /* symulowane online/offline + aktualny kod — patrz komentarz przy randomStatus() */
-  const [sim, setSim] = useState<Record<number, SimState>>({});
+  /* Live-update z WebSocketa — patrz API_SPEC.md sekcja 5 (device.*). Poll powyżej
+     zostaje jako siatka bezpieczeństwa na wypadek zerwanego połączenia WS. */
   useEffect(() => {
-    setSim(prev => {
-      let changed = false;
-      const next = { ...prev };
-      for (const d of devices) {
-        if (!(d.id in next)) { next[d.id] = initSim(); changed = true; }
-      }
-      return changed ? next : prev;
+    const offCreated = ws.on('device.created', msg => {
+      const tablet = msg.tablet as TabletResponse;
+      setDevices(prev => prev.some(d => d.id === tablet.id) ? prev : [...prev, tablet]);
     });
-  }, [devices]);
-  useEffect(() => {
-    const id = setInterval(() => {
-      setSim(prev => {
-        const activeDevices = devices.filter(d => d.is_active);
-        if (activeDevices.length === 0) return prev;
-        const target = activeDevices[Math.floor(Math.random() * activeDevices.length)];
-        return { ...prev, [target.id]: initSim() };
-      });
-    }, 8000);
-    return () => clearInterval(id);
-  }, [devices]);
+    const offUpdated = ws.on('device.updated', msg => {
+      const tablet = msg.tablet as TabletResponse;
+      setDevices(prev => prev.map(d => d.id === tablet.id ? tablet : d));
+    });
+    const offDeleted = ws.on('device.deleted', msg => {
+      const tabletId = msg.tablet_id as number;
+      setDevices(prev => prev.filter(d => d.id !== tabletId));
+    });
+    const offStatus = ws.on('device.status', msg => {
+      const tabletId = msg.tablet_id as number;
+      const online = msg.online as boolean;
+      setDevices(prev => prev.map(d => d.id === tabletId ? { ...d, online } : d));
+    });
+    return () => { offCreated(); offUpdated(); offDeleted(); offStatus(); };
+  }, []);
 
   const [editingDevice, setEditingDevice] = useState<TabletResponse | null>(null);
 
@@ -260,7 +245,6 @@ export default function AdminDashboard({ addOpen = false, onAddClose, searchQuer
     try {
       const created = await api.post<TabletResponse>('/admin/tablets', { name: '', location_id: null });
       setDevices(prev => [...prev, created]);
-      setSim(prev => ({ ...prev, [created.id]: initSim() }));
       onAddClose?.();
     } catch (err) {
       alertDialog(err instanceof ApiError ? err.message : 'Nie udało się dodać tabletu.', { title: 'Błąd', tone: 'danger' });
@@ -318,13 +302,9 @@ export default function AdminDashboard({ addOpen = false, onAddClose, searchQuer
           {visibleDevices.map(device => {
             const nameMissing = !device.name;
             const locMissing = !device.location_id;
-            const deviceSim = sim[device.id] ?? initSim();
-            const isOnline = deviceSim.status === 'online';
-            const displayCode = device.is_active && isOnline ? deviceSim.code : '—';
-
             const badge = !device.is_active
               ? { tone: 'neutral' as const, label: 'Dezaktywowany' }
-              : isOnline
+              : device.online
                 ? { tone: 'success' as const, label: 'Online' }
                 : { tone: 'danger' as const, label: 'Offline' };
 
@@ -370,13 +350,9 @@ export default function AdminDashboard({ addOpen = false, onAddClose, searchQuer
                 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-muted)', fontFamily: 'var(--font-ui)', fontSize: 13 }}>
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" />
-                      <rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" />
+                      <circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" />
                     </svg>
-                    Aktualny kod:
-                    <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 15, color: 'var(--text-strong)', fontVariantNumeric: 'tabular-nums' }}>
-                      {displayCode}
-                    </span>
+                    {device.online ? 'Aktywny teraz' : formatLastSeen(device.last_seen_at)}
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                     <Switch checked={device.is_active} onChange={() => handleToggleActive(device)} ariaLabel={device.is_active ? 'Dezaktywuj tablet' : 'Aktywuj tablet'} />
@@ -429,11 +405,9 @@ export default function AdminDashboard({ addOpen = false, onAddClose, searchQuer
         </>
       }>
         {editingDevice && (() => {
-          const editSim = sim[editingDevice.id] ?? initSim();
-          const editIsOnline = editSim.status === 'online';
           const editBadge = !editingDevice.is_active
             ? { tone: 'neutral' as const, label: 'Dezaktywowany' }
-            : editIsOnline
+            : editingDevice.online
               ? { tone: 'success' as const, label: 'Online' }
               : { tone: 'danger' as const, label: 'Offline' };
           return (
@@ -497,4 +471,6 @@ export default function AdminDashboard({ addOpen = false, onAddClose, searchQuer
       </SlidePanel>
     </div>
   );
-}
+});
+
+export default AdminDashboard;
