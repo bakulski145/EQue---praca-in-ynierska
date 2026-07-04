@@ -1,11 +1,10 @@
 import { useState, useEffect, useCallback, forwardRef, useImperativeHandle } from 'react';
 import { api, ApiError } from '../lib/api';
 import { ws } from '../lib/ws';
+import { sortByName } from '../lib/sort';
 import type { TabletResponse, LocationResponse, RefreshHandle } from '../lib/apiTypes';
 import { confirmDialog, alertDialog } from '../lib/dialogs';
 import Select from './ui/Select';
-
-const POLL_INTERVAL_MS = 10000;
 
 function formatLastSeen(lastSeenAt: string | null): string {
   if (!lastSeenAt) return 'Nigdy nie było online';
@@ -182,7 +181,8 @@ const AdminDashboard = forwardRef<RefreshHandle, { addOpen?: boolean; onAddClose
       setDevices(t);
       setLocations(l);
     } catch {
-      // zachowaj ostatnio znane dane — kolejny poll spróbuje ponownie
+      // zachowaj ostatnio znane dane — WS dociągnie zmiany na żywo,
+      // przycisk "Odśwież" pozwala spróbować ponownie ręcznie
     } finally {
       setLoading(false);
     }
@@ -194,12 +194,11 @@ const AdminDashboard = forwardRef<RefreshHandle, { addOpen?: boolean; onAddClose
     // setTimeout(…, 0) zamiast bezpośredniego refetch() w ciele efektu —
     // refetch() jest zawsze wywoływane z callbacku timera, nigdy synchronicznie.
     const initial = setTimeout(refetch, 0);
-    const id = setInterval(refetch, POLL_INTERVAL_MS);
-    return () => { clearTimeout(initial); clearInterval(id); };
+    return () => clearTimeout(initial);
   }, [refetch]);
 
-  /* Live-update z WebSocketa — patrz API_SPEC.md sekcja 5 (device.*). Poll powyżej
-     zostaje jako siatka bezpieczeństwa na wypadek zerwanego połączenia WS. */
+  /* Live-update z WebSocketa — patrz API_SPEC.md sekcja 5 (device.*). Gdyby
+     połączenie WS na chwilę padło, App.tsx dociągnie stan po jego powrocie. */
   useEffect(() => {
     const offCreated = ws.on('device.created', msg => {
       const tablet = msg.tablet as TabletResponse;
@@ -244,7 +243,7 @@ const AdminDashboard = forwardRef<RefreshHandle, { addOpen?: boolean; onAddClose
   const handleSimulateScan = async () => {
     try {
       const created = await api.post<TabletResponse>('/admin/tablets', { name: '', location_id: null });
-      setDevices(prev => [...prev, created]);
+      setDevices(prev => prev.some(d => d.id === created.id) ? prev : [...prev, created]);
       onAddClose?.();
     } catch (err) {
       alertDialog(err instanceof ApiError ? err.message : 'Nie udało się dodać tabletu.', { title: 'Błąd', tone: 'danger' });
@@ -284,9 +283,12 @@ const AdminDashboard = forwardRef<RefreshHandle, { addOpen?: boolean; onAddClose
 
   const getLocationName = (locId: number | null) => locations.find(l => l.id === locId)?.name ?? '';
 
-  const visibleDevices = searchQuery.trim()
-    ? devices.filter(d => d.name.toLowerCase().includes(searchQuery.trim().toLowerCase()))
-    : devices;
+  const visibleDevices = sortByName(
+    searchQuery.trim()
+      ? devices.filter(d => d.name.toLowerCase().includes(searchQuery.trim().toLowerCase()))
+      : devices,
+    d => d.name
+  );
 
   /* ── render ────────────────────────────────────────── */
   return (
@@ -450,7 +452,7 @@ const AdminDashboard = forwardRef<RefreshHandle, { addOpen?: boolean; onAddClose
                   placeholder="Nieprzypisany do żadnej lokalizacji"
                   options={[
                     { value: '', label: 'Nieprzypisany do żadnej lokalizacji' },
-                    ...locations.filter(loc => loc.is_active).map(loc => {
+                    ...sortByName(locations.filter(loc => loc.is_active), l => l.name).map(loc => {
                       const occupant = devices.find(d => d.location_id === loc.id && d.id !== editingDevice.id);
                       return {
                         value: String(loc.id),

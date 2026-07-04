@@ -1,12 +1,11 @@
 import { useState, useEffect, useCallback, forwardRef, useImperativeHandle } from 'react';
 import { api, ApiError } from '../lib/api';
 import { ws, type WsMessage } from '../lib/ws';
+import { sortByName } from '../lib/sort';
 import type { LocationResponse, QueueResponse, RefreshHandle } from '../lib/apiTypes';
 import { recordResolved, getActivity } from '../lib/ticketActivity';
 import { alertDialog } from '../lib/dialogs';
 import Select from './ui/Select';
-
-const POLL_INTERVAL_MS = 10000;
 
 function formatTime(iso: string) {
   return new Date(iso).toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' });
@@ -107,14 +106,15 @@ const UserQueue = forwardRef<RefreshHandle, { userName: string; locationIds: num
     return () => clearTimeout(id);
   }, [fetchLocations]);
 
-  const availableLocations = allLocations.filter(l => l.is_active);
+  const availableLocations = sortByName(allLocations.filter(l => l.is_active), l => l.name);
 
   const refetchQueue = useCallback(async (locId: number) => {
     try {
       const q = await api.get<QueueResponse>(`/admin/locations/${locId}/queue`);
       setQueue(q);
     } catch {
-      // zachowaj ostatni znany stan — kolejny poll spróbuje ponownie
+      // zachowaj ostatni znany stan — WS dociągnie zmiany na żywo,
+      // przycisk "Odśwież" pozwala spróbować ponownie ręcznie
     }
   }, []);
 
@@ -128,8 +128,7 @@ const UserQueue = forwardRef<RefreshHandle, { userName: string; locationIds: num
   useEffect(() => {
     if (selectedLocationId === '') return;
     const initial = setTimeout(() => refetchQueue(selectedLocationId), 0);
-    const id = setInterval(() => refetchQueue(selectedLocationId), POLL_INTERVAL_MS);
-    return () => { clearTimeout(initial); clearInterval(id); };
+    return () => clearTimeout(initial);
   }, [selectedLocationId, refetchQueue]);
 
   /* Nowe zgłoszenie / wezwanie / zakończenie w wybranej lokalizacji — odśwież

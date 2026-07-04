@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 from schemas.api_schemas import (
     QRCodeResponse, JoinQueueRequest, JoinQueueResponse, PatientCancelRequest,
     TabletCreate, TabletUpdate, TabletResponse,
-    LoginRequest, TokenResponse, MeResponse,
+    LoginRequest, TokenResponse, MeResponse, ChangePasswordRequest,
     UserCreate, UserUpdate, UserResponse,
     LocationCreate, LocationUpdate, LocationResponse, TabletInLocation,
     TicketResponse, QueueResponse,
@@ -266,6 +266,29 @@ async def me(current_user: models.User = Depends(get_current_user)):
         is_active=current_user.is_active,
         location_ids=[loc.id for loc in current_user.locations],
     )
+
+
+@app.post("/api/v1/auth/change-password", tags=["Auth"])
+async def change_password(
+    data: ChangePasswordRequest,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """
+    Samoobsługowa zmiana własnego hasła (ADMIN i OPERATOR).
+    Wymaga podania obecnego hasła — w odróżnieniu od PUT /admin/users/{id},
+    gdzie admin resetuje hasło komuś innemu bez jego znajomości.
+    """
+    if not verify_password(data.current_password, current_user.password_hash):
+        raise HTTPException(status_code=401, detail="Obecne hasło jest nieprawidłowe")
+
+    if len(data.new_password) < 6:
+        raise HTTPException(status_code=422, detail="Nowe hasło musi mieć co najmniej 6 znaków")
+
+    current_user.password_hash = hash_password(data.new_password)
+    db.commit()
+
+    return {"message": "Hasło zostało zmienione."}
 
 
 # ---------------------------------------------------------------------------

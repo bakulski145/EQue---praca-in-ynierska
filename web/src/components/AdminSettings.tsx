@@ -1,3 +1,7 @@
+import { useState } from 'react';
+import { api, ApiError } from '../lib/api';
+import { alertDialog } from '../lib/dialogs';
+
 type Theme = 'light' | 'dark';
 
 function SunIcon() {
@@ -88,34 +92,171 @@ function ThemeOption({ value, label, description, icon, selected, onClick }: {
   );
 }
 
-export default function AdminSettings({ theme, onThemeChange }: { theme: Theme; onThemeChange: (t: Theme) => void }) {
+function LockIcon() {
   return (
-    <div style={{ background: 'var(--surface-card)', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-sm)', border: '1px solid var(--border-subtle)', padding: 28, maxWidth: 620 }}>
-      <h2 style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 19, color: 'var(--text-strong)', margin: '0 0 4px' }}>
-        Motyw aplikacji
-      </h2>
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0110 0v4" />
+    </svg>
+  );
+}
+
+function CheckCircleIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M22 11.08V12a10 10 0 11-5.93-9.14" /><polyline points="22 4 12 14.01 9 11.01" />
+    </svg>
+  );
+}
+
+const inputStyle: React.CSSProperties = {
+  width: '100%', border: '1.5px solid var(--border-default)',
+  borderRadius: 'var(--radius-md)', padding: '11px 14px',
+  fontFamily: 'var(--font-ui)', fontSize: 15,
+  color: 'var(--text-strong)', background: 'var(--surface-card)',
+  outline: 'none', boxSizing: 'border-box',
+  transition: 'border-color var(--dur-fast)',
+};
+const labelStyle: React.CSSProperties = {
+  display: 'block', marginBottom: 7,
+  fontFamily: 'var(--font-ui)', fontSize: 14, fontWeight: 600,
+  color: 'var(--text-body)',
+};
+
+function PasswordField({ label, value, onChange, autoComplete }: {
+  label: string; value: string; onChange: (v: string) => void; autoComplete: string;
+}) {
+  return (
+    <div>
+      <label style={labelStyle}>{label}</label>
+      <input
+        type="password" style={inputStyle} value={value} autoComplete={autoComplete}
+        onChange={e => onChange(e.target.value)}
+        onFocus={e => { e.currentTarget.style.borderColor = 'var(--focus-ring)'; }}
+        onBlur={e => { e.currentTarget.style.borderColor = 'var(--border-default)'; }}
+      />
+    </div>
+  );
+}
+
+function ChangePasswordCard() {
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [success, setSuccess] = useState(false);
+
+  const mismatch = confirmPassword.length > 0 && newPassword !== confirmPassword;
+  const tooShort = newPassword.length > 0 && newPassword.length < 6;
+  const canSubmit = currentPassword.length > 0 && newPassword.length >= 6 && newPassword === confirmPassword && !submitting;
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!canSubmit) return;
+    setSubmitting(true);
+    setSuccess(false);
+    try {
+      await api.post('/auth/change-password', { current_password: currentPassword, new_password: newPassword });
+      setCurrentPassword(''); setNewPassword(''); setConfirmPassword('');
+      setSuccess(true);
+      setTimeout(() => setSuccess(false), 4000);
+    } catch (err) {
+      alertDialog(err instanceof ApiError ? err.message : 'Nie udało się zmienić hasła.', { title: 'Błąd', tone: 'danger' });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div style={{ background: 'var(--surface-card)', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-sm)', border: '1px solid var(--border-subtle)', padding: 28 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+        <span style={{ display: 'flex', color: 'var(--text-brand)' }}><LockIcon /></span>
+        <h2 style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 19, color: 'var(--text-strong)', margin: 0 }}>
+          Hasło i bezpieczeństwo
+        </h2>
+      </div>
       <p style={{ fontFamily: 'var(--font-ui)', fontSize: 14, color: 'var(--text-muted)', margin: '0 0 20px' }}>
-        Wybierz wygląd aplikacji eQue.
+        Zmień hasło używane do logowania na to konto.
       </p>
 
-      <div style={{ display: 'flex', gap: 14 }}>
-        <ThemeOption
-          value="light"
-          label="Jasny"
-          description="Domyślny, jasny wygląd interfejsu."
-          icon={<SunIcon />}
-          selected={theme === 'light'}
-          onClick={() => onThemeChange('light')}
-        />
-        <ThemeOption
-          value="dark"
-          label="Ciemny"
-          description="Ciemne tło, mniej zmęczenia oczu wieczorem."
-          icon={<MoonIcon />}
-          selected={theme === 'dark'}
-          onClick={() => onThemeChange('dark')}
-        />
+      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <PasswordField label="Obecne hasło" value={currentPassword} onChange={setCurrentPassword} autoComplete="current-password" />
+        <PasswordField label="Nowe hasło" value={newPassword} onChange={setNewPassword} autoComplete="new-password" />
+        <PasswordField label="Powtórz nowe hasło" value={confirmPassword} onChange={setConfirmPassword} autoComplete="new-password" />
+
+        {tooShort && (
+          <p style={{ fontFamily: 'var(--font-ui)', fontSize: 13, color: 'var(--amber-600)', margin: 0 }}>
+            Nowe hasło musi mieć co najmniej 6 znaków.
+          </p>
+        )}
+        {mismatch && (
+          <p style={{ fontFamily: 'var(--font-ui)', fontSize: 13, color: 'var(--red-600)', margin: 0 }}>
+            Hasła nie są identyczne.
+          </p>
+        )}
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginTop: 4 }}>
+          <button
+            type="submit"
+            disabled={!canSubmit}
+            style={{
+              background: 'var(--brand)', color: 'var(--on-brand)', border: 'none',
+              borderRadius: 'var(--radius-md)', padding: '10px 22px',
+              fontFamily: 'var(--font-ui)', fontWeight: 700, fontSize: 14.5,
+              cursor: canSubmit ? 'pointer' : 'not-allowed', opacity: canSubmit ? 1 : 0.55,
+              transition: 'background var(--dur-fast), opacity var(--dur-fast)',
+            }}
+            onMouseEnter={e => { if (canSubmit) e.currentTarget.style.background = 'var(--brand-hover)'; }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'var(--brand)'; }}
+          >
+            {submitting ? 'Zapisywanie…' : 'Zmień hasło'}
+          </button>
+
+          <span style={{
+            display: 'flex', alignItems: 'center', gap: 7,
+            color: 'var(--green-600)', fontFamily: 'var(--font-ui)', fontWeight: 600, fontSize: 13.5,
+            opacity: success ? 1 : 0, transform: success ? 'translateY(0)' : 'translateY(-4px)',
+            transition: 'opacity 220ms var(--ease-out), transform 220ms var(--ease-out)',
+          }}>
+            <CheckCircleIcon /> Hasło zostało zmienione
+          </span>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+export default function AdminSettings({ theme, onThemeChange }: { theme: Theme; onThemeChange: (t: Theme) => void }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 24, maxWidth: 620 }}>
+      <div style={{ background: 'var(--surface-card)', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-sm)', border: '1px solid var(--border-subtle)', padding: 28 }}>
+        <h2 style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 19, color: 'var(--text-strong)', margin: '0 0 4px' }}>
+          Motyw aplikacji
+        </h2>
+        <p style={{ fontFamily: 'var(--font-ui)', fontSize: 14, color: 'var(--text-muted)', margin: '0 0 20px' }}>
+          Wybierz wygląd aplikacji eQue.
+        </p>
+
+        <div style={{ display: 'flex', gap: 14 }}>
+          <ThemeOption
+            value="light"
+            label="Jasny"
+            description="Domyślny, jasny wygląd interfejsu."
+            icon={<SunIcon />}
+            selected={theme === 'light'}
+            onClick={() => onThemeChange('light')}
+          />
+          <ThemeOption
+            value="dark"
+            label="Ciemny"
+            description="Ciemne tło, mniej zmęczenia oczu wieczorem."
+            icon={<MoonIcon />}
+            selected={theme === 'dark'}
+            onClick={() => onThemeChange('dark')}
+          />
+        </div>
       </div>
+
+      <ChangePasswordCard />
     </div>
   );
 }

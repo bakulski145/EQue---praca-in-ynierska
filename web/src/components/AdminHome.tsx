@@ -1,9 +1,8 @@
 import { useState, useEffect, useMemo, useCallback, forwardRef, useImperativeHandle } from 'react';
 import { api } from '../lib/api';
 import { ws } from '../lib/ws';
+import { sortByName } from '../lib/sort';
 import type { TabletResponse, UserResponse, LocationResponse, RefreshHandle } from '../lib/apiTypes';
-
-const POLL_INTERVAL_MS = 10000;
 
 /* ── sub-components ───────────────────────────────────── */
 
@@ -124,7 +123,8 @@ const AdminHome = forwardRef<RefreshHandle, { userName?: string }>(function Admi
       setUsers(u);
       setLocations(l);
     } catch {
-      // zachowaj ostatnio znane dane — kolejny poll spróbuje ponownie
+      // zachowaj ostatnio znane dane — WS dociągnie zmiany na żywo,
+      // przycisk "Odśwież" pozwala spróbować ponownie ręcznie
     }
   }, []);
 
@@ -132,8 +132,7 @@ const AdminHome = forwardRef<RefreshHandle, { userName?: string }>(function Admi
 
   useEffect(() => {
     const initial = setTimeout(refetch, 0);
-    const id = setInterval(refetch, POLL_INTERVAL_MS);
-    return () => { clearTimeout(initial); clearInterval(id); };
+    return () => clearTimeout(initial);
   }, [refetch]);
 
   /* Live status tabletów przez WebSocket (device.status) — patrz AdminDashboard.tsx. */
@@ -192,7 +191,7 @@ const AdminHome = forwardRef<RefreshHandle, { userName?: string }>(function Admi
             {locations.length === 0 && (
               <p style={{ fontFamily: 'var(--font-ui)', fontSize: 14, color: 'var(--text-muted)', margin: 0 }}>Brak dodanych lokalizacji.</p>
             )}
-            {locations.map((loc, i) => {
+            {sortByName(locations, l => l.name).map((loc, i) => {
               const tabletLabel = loc.tablet ? (loc.tablet.name || 'Tablet bez nazwy') : 'Brak tabletu';
               const userCount = loc.user_ids.length;
               const active = loc.is_active;

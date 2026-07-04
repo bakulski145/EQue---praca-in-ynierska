@@ -1,13 +1,12 @@
 import { useState, useEffect, useCallback, forwardRef, useImperativeHandle } from 'react';
 import { api, ApiError } from '../lib/api';
 import { ws } from '../lib/ws';
+import { sortByName } from '../lib/sort';
 import type { UserResponse, LocationResponse, Role, RefreshHandle } from '../lib/apiTypes';
 import { confirmDialog, alertDialog } from '../lib/dialogs';
 import Select from './ui/Select';
 
 type OnlineStatus = 'online' | 'offline';
-
-const POLL_INTERVAL_MS = 10000;
 
 /* ── helpers ─────────────────────────────────────────── */
 
@@ -187,7 +186,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 /* ── main component ───────────────────────────────────── */
 
-const AdminUsers = forwardRef<RefreshHandle, { addOpen?: boolean; onAddClose?: () => void; searchQuery?: string }>(function AdminUsers({ addOpen: addPanelOpen = false, onAddClose, searchQuery = '' }, ref) {
+const AdminUsers = forwardRef<RefreshHandle, { addOpen?: boolean; onAddClose?: () => void; searchQuery?: string; currentUserId?: string }>(function AdminUsers({ addOpen: addPanelOpen = false, onAddClose, searchQuery = '', currentUserId }, ref) {
   const [users, setUsers] = useState<UserResponse[]>([]);
   const [locations, setLocations] = useState<LocationResponse[]>([]);
   const [loading, setLoading] = useState(true);
@@ -201,7 +200,8 @@ const AdminUsers = forwardRef<RefreshHandle, { addOpen?: boolean; onAddClose?: (
       setUsers(u);
       setLocations(l);
     } catch {
-      // zachowaj ostatnio znane dane — kolejny poll spróbuje ponownie
+      // zachowaj ostatnio znane dane — WS dociągnie zmiany na żywo,
+      // przycisk "Odśwież" pozwala spróbować ponownie ręcznie
     } finally {
       setLoading(false);
     }
@@ -213,8 +213,7 @@ const AdminUsers = forwardRef<RefreshHandle, { addOpen?: boolean; onAddClose?: (
     // setTimeout(…, 0) zamiast bezpośredniego refetch() w ciele efektu —
     // refetch() jest zawsze wywoływane z callbacku timera, nigdy synchronicznie.
     const initial = setTimeout(refetch, 0);
-    const id = setInterval(refetch, POLL_INTERVAL_MS);
-    return () => { clearTimeout(initial); clearInterval(id); };
+    return () => clearTimeout(initial);
   }, [refetch]);
 
   /* Live obecność operatorów przez WebSocket (user.presence) — heartbeat z panelu
@@ -271,7 +270,7 @@ const AdminUsers = forwardRef<RefreshHandle, { addOpen?: boolean; onAddClose?: (
         password: newPassword,
         location_ids: [],
       });
-      setUsers(prev => [...prev, created]);
+      setUsers(prev => prev.some(u => u.id === created.id) ? prev : [...prev, created]);
       onAddClose?.();
       resetAddForm();
     } catch (err) {
@@ -328,9 +327,12 @@ const AdminUsers = forwardRef<RefreshHandle, { addOpen?: boolean; onAddClose?: (
   const allLocationNames = (u: UserResponse) =>
     locations.filter(l => u.location_ids.includes(l.id)).map(l => l.name);
 
-  const visibleUsers = searchQuery.trim()
-    ? users.filter(u => u.full_name.toLowerCase().includes(searchQuery.trim().toLowerCase()))
-    : users;
+  const visibleUsers = sortByName(
+    searchQuery.trim()
+      ? users.filter(u => u.full_name.toLowerCase().includes(searchQuery.trim().toLowerCase()))
+      : users,
+    u => u.full_name
+  );
 
   /* ── render ────────────────────────────────────────── */
   return (
@@ -379,8 +381,21 @@ const AdminUsers = forwardRef<RefreshHandle, { addOpen?: boolean; onAddClose?: (
               <div style={{ display: 'flex', alignItems: 'center', gap: 14, minWidth: 0 }}>
                 <Avatar name={user.full_name} status={status} active={user.is_active} size={44} />
                 <div style={{ minWidth: 0 }}>
-                  <div style={{ fontFamily: 'var(--font-ui)', fontWeight: 700, fontSize: 15.5, color: user.is_active ? 'var(--text-strong)' : 'var(--text-faint)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {user.full_name}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                    <span style={{ fontFamily: 'var(--font-ui)', fontWeight: 700, fontSize: 15.5, color: user.is_active ? 'var(--text-strong)' : 'var(--text-faint)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {user.full_name}
+                    </span>
+                    {user.id === currentUserId && (
+                      <span style={{
+                        display: 'inline-flex', alignItems: 'center', flexShrink: 0,
+                        padding: '2px 9px', borderRadius: 'var(--radius-pill)',
+                        background: 'var(--brand-subtle)', border: '1px solid var(--brand-border)',
+                        color: 'var(--text-brand)', fontFamily: 'var(--font-ui)', fontWeight: 700, fontSize: 11.5,
+                        textTransform: 'uppercase', letterSpacing: '0.04em',
+                      }}>
+                        Ty
+                      </span>
+                    )}
                   </div>
                   <div style={{ fontFamily: 'var(--font-ui)', fontSize: 13, color: 'var(--text-muted)', marginTop: 2 }}>
                     {user.position || `@${user.username}`}
@@ -611,7 +626,7 @@ const AdminUsers = forwardRef<RefreshHandle, { addOpen?: boolean; onAddClose?: (
             </Field>
 
             {editUser.role === 'OPERATOR' && (() => {
-              const assignableLocations = locations.filter(l => l.is_active);
+              const assignableLocations = sortByName(locations.filter(l => l.is_active), l => l.name);
               return (
                 <Field label="Przypisane lokalizacje">
                   {!editUser.is_active ? (

@@ -1,10 +1,9 @@
 import { useState, useEffect, useCallback, forwardRef, useImperativeHandle } from 'react';
 import { api } from '../lib/api';
 import { ws, type WsMessage } from '../lib/ws';
+import { sortByName } from '../lib/sort';
 import type { LocationResponse, QueueResponse, RefreshHandle } from '../lib/apiTypes';
 import { getActivity } from '../lib/ticketActivity';
-
-const POLL_INTERVAL_MS = 10000;
 
 function minutesSince(iso: string): number {
   return Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
@@ -126,7 +125,8 @@ const UserHome = forwardRef<RefreshHandle, { userName?: string; locationIds: num
       }));
       setQueues(Object.fromEntries(entries));
     } catch {
-      // zachowaj ostatnio znane dane — kolejny poll spróbuje ponownie
+      // zachowaj ostatnio znane dane — WS dociągnie zmiany na żywo,
+      // przycisk "Odśwież" pozwala spróbować ponownie ręcznie
     }
     bumpTick(n => n + 1); // odśwież też liczniki z ticketActivity (czeka X min, itp.)
   }, [locationIds]);
@@ -135,8 +135,7 @@ const UserHome = forwardRef<RefreshHandle, { userName?: string; locationIds: num
 
   useEffect(() => {
     const initial = setTimeout(refetch, 0);
-    const id = setInterval(refetch, POLL_INTERVAL_MS);
-    return () => { clearTimeout(initial); clearInterval(id); };
+    return () => clearTimeout(initial);
   }, [refetch]);
 
   /* Nowe zgłoszenie / wezwanie / zakończenie w jednej z Twoich lokalizacji —
@@ -202,7 +201,7 @@ const UserHome = forwardRef<RefreshHandle, { userName?: string; locationIds: num
         {/* My locations overview */}
         <CardShell title="Twoje lokalizacje — przegląd" subtitle="Stan kolejki w każdej przypisanej lokalizacji">
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            {myLocations.map((loc, i) => {
+            {sortByName(myLocations, l => l.name).map((loc, i) => {
               const active = loc.is_active;
               const q = active ? queues[loc.id] : undefined;
               return (

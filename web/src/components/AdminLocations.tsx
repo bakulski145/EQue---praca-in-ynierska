@@ -1,11 +1,10 @@
 import { useState, useEffect, useCallback, forwardRef, useImperativeHandle } from 'react';
 import { api, ApiError } from '../lib/api';
 import { ws } from '../lib/ws';
+import { sortByName } from '../lib/sort';
 import type { LocationResponse, TabletResponse, UserResponse, RefreshHandle } from '../lib/apiTypes';
 import { confirmDialog, alertDialog } from '../lib/dialogs';
 import Select from './ui/Select';
-
-const POLL_INTERVAL_MS = 10000;
 
 /* ── helpers ─────────────────────────────────────────── */
 
@@ -168,7 +167,8 @@ const AdminLocations = forwardRef<RefreshHandle, { addOpen?: boolean; onAddClose
       setTablets(t);
       setUsers(u);
     } catch {
-      // zachowaj ostatnio znane dane — kolejny poll spróbuje ponownie
+      // zachowaj ostatnio znane dane — WS dociągnie zmiany na żywo,
+      // przycisk "Odśwież" pozwala spróbować ponownie ręcznie
     } finally {
       setLoading(false);
     }
@@ -178,8 +178,7 @@ const AdminLocations = forwardRef<RefreshHandle, { addOpen?: boolean; onAddClose
 
   useEffect(() => {
     const initial = setTimeout(refetch, 0);
-    const id = setInterval(refetch, POLL_INTERVAL_MS);
-    return () => { clearTimeout(initial); clearInterval(id); };
+    return () => clearTimeout(initial);
   }, [refetch]);
 
   /* Live-update z WebSocketa (location.* i device.*) — patrz API_SPEC.md sekcja 5. */
@@ -253,7 +252,7 @@ const AdminLocations = forwardRef<RefreshHandle, { addOpen?: boolean; onAddClose
         name: newName.trim(),
         description: newDescription.trim() || null,
       });
-      setLocations(prev => [...prev, created]);
+      setLocations(prev => prev.some(l => l.id === created.id) ? prev : [...prev, created]);
       onAddClose?.();
       setNewName('');
       setNewDescription('');
@@ -296,9 +295,12 @@ const AdminLocations = forwardRef<RefreshHandle, { addOpen?: boolean; onAddClose
     }
   };
 
-  const visibleLocations = searchQuery.trim()
-    ? locations.filter(l => l.name.toLowerCase().includes(searchQuery.trim().toLowerCase()))
-    : locations;
+  const visibleLocations = sortByName(
+    searchQuery.trim()
+      ? locations.filter(l => l.name.toLowerCase().includes(searchQuery.trim().toLowerCase()))
+      : locations,
+    l => l.name
+  );
 
   /* ── render ────────────────────────────────────────── */
   return (
@@ -504,7 +506,7 @@ const AdminLocations = forwardRef<RefreshHandle, { addOpen?: boolean; onAddClose
                   placeholder="Brak przypisanego tabletu"
                   options={[
                     { value: '', label: 'Brak przypisanego tabletu' },
-                    ...tablets.filter(t => t.is_active).map(t => ({
+                    ...sortByName(tablets.filter(t => t.is_active), t => t.name).map(t => ({
                       value: String(t.id),
                       label: `${t.name || 'Tablet bez nazwy'}${t.location_id && t.location_id !== editingLocation.id ? ' (przypisany gdzie indziej)' : ''}`,
                     })),
@@ -519,7 +521,7 @@ const AdminLocations = forwardRef<RefreshHandle, { addOpen?: boolean; onAddClose
                   Aktywuj lokalizację, aby przypisać użytkowników.
                 </p>
               ) : (() => {
-                const assignableUsers = users.filter(u => u.is_active && u.role === 'OPERATOR');
+                const assignableUsers = sortByName(users.filter(u => u.is_active && u.role === 'OPERATOR'), u => u.full_name);
                 return (
                   <div style={{ border: '1.5px solid var(--border-default)', borderRadius: 'var(--radius-md)', overflow: 'hidden' }}>
                     {assignableUsers.map((user, i) => (

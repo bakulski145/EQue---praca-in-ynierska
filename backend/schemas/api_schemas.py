@@ -139,6 +139,11 @@ class LoginRequest(BaseModel):
     username: str
     password: str
 
+class ChangePasswordRequest(BaseModel):
+    """Body POST /auth/change-password — samoobsługowa zmiana własnego hasła."""
+    current_password: str
+    new_password: str
+
 class TokenResponse(BaseModel):
     """Odpowiedź POST /auth/login — token + dane profilu potrzebne frontendowi od razu po logowaniu."""
     access_token: str

@@ -16,6 +16,8 @@ class WsClient {
   private socket: WebSocket | null = null;
   private topics: string[] = [];
   private handlers = new Map<string, Set<Handler>>();
+  private reconnectHandlers = new Set<() => void>();
+  private hasConnectedOnce = false;
   private pingTimer: ReturnType<typeof setInterval> | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectDelay = RECONNECT_BASE_MS;
@@ -36,6 +38,7 @@ class WsClient {
 
   disconnect() {
     this.closedByClient = true;
+    this.hasConnectedOnce = false;
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     if (this.pingTimer) clearInterval(this.pingTimer);
     this.socket?.close();
@@ -49,6 +52,19 @@ class WsClient {
     return () => this.handlers.get(type)?.delete(handler);
   }
 
+  /**
+   * Woła handler za każdym razem, gdy gniazdo (po raz pierwszy połączone
+   * wcześniej) łączy się ponownie — czyli mogliśmy przegapić eventy w trakcie
+   * rozłączenia. Zastępuje to pollingowy refetch: zamiast dociągać stan co
+   * 10s "na sztywno", robimy to jednorazowo, dokładnie wtedy, gdy jest to
+   * potrzebne. Nie odpala się przy pierwszym połączeniu (initial fetch
+   * komponentu już to załatwia).
+   */
+  onReconnect(handler: () => void): () => void {
+    this.reconnectHandlers.add(handler);
+    return () => this.reconnectHandlers.delete(handler);
+  }
+
   private open() {
     const token = getToken();
     if (!token) return;
@@ -59,11 +75,14 @@ class WsClient {
     this.socket = socket;
 
     socket.onopen = () => {
+      const isReconnect = this.hasConnectedOnce;
+      this.hasConnectedOnce = true;
       this.reconnectDelay = RECONNECT_BASE_MS;
       socket.send(JSON.stringify({ type: 'subscribe', topics: this.topics }));
       this.pingTimer = setInterval(() => {
         if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: 'ping' }));
       }, PING_INTERVAL_MS);
+      if (isReconnect) this.reconnectHandlers.forEach(h => h());
     };
 
     socket.onmessage = (event) => {

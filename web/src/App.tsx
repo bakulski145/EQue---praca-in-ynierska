@@ -19,6 +19,7 @@ type Theme = 'light' | 'dark';
 
 /** Sesja wyprowadzona z /auth/me — jedyne trwałe dane to sam token JWT. */
 interface Session {
+  id: string;
   role: Role;
   fullName: string;
   locationIds: number[];
@@ -26,6 +27,7 @@ interface Session {
 
 function meToSession(me: MeResponse): Session {
   return {
+    id: me.id,
     role: me.role === 'ADMIN' ? 'admin' : 'user',
     fullName: me.full_name,
     locationIds: me.location_ids,
@@ -208,7 +210,10 @@ export default function App() {
     if (!session) return;
     const topics = session.role === 'admin' ? ['admin'] : session.locationIds.map(id => `location:${id}`);
     ws.connect(topics);
-    return () => ws.disconnect();
+    // Zamiast pollingu co 10s: jeśli połączenie się zerwie i wróci, dociągamy
+    // stan aktualnie widocznej zakładki jednorazowo (mogliśmy przegapić eventy).
+    const offReconnect = ws.onReconnect(() => { contentRef.current?.refetch(); });
+    return () => { offReconnect(); ws.disconnect(); };
   }, [session]);
 
   const handleLoginSuccess = (me: MeResponse) => {
@@ -252,7 +257,7 @@ export default function App() {
     return <LoginForm onLoginSuccess={handleLoginSuccess} />;
   }
 
-  const { role, fullName: userName, locationIds } = session;
+  const { id: currentUserId, role, fullName: userName, locationIds } = session;
 
   const meta = TAB_META[activeTab] ?? { title: activeTab, action: null };
   const showSearch = role === 'admin' && SEARCHABLE_TABS.has(activeTab);
@@ -317,7 +322,7 @@ export default function App() {
                 activeTab === 'strona_glowna' ? <AdminHome ref={contentRef} userName={userName} />
                 : activeTab === 'tablety'     ? <AdminDashboard ref={contentRef} addOpen={addOpen} onAddClose={() => setAddOpen(false)} searchQuery={searchQuery} />
                 : activeTab === 'lokalizacje' ? <AdminLocations ref={contentRef} addOpen={addOpen} onAddClose={() => setAddOpen(false)} searchQuery={searchQuery} />
-                : activeTab === 'uzytkownicy' ? <AdminUsers ref={contentRef} addOpen={addOpen} onAddClose={() => setAddOpen(false)} searchQuery={searchQuery} />
+                : activeTab === 'uzytkownicy' ? <AdminUsers ref={contentRef} addOpen={addOpen} onAddClose={() => setAddOpen(false)} searchQuery={searchQuery} currentUserId={currentUserId} />
                 : activeTab === 'ustawienia'  ? <AdminSettings theme={theme} onThemeChange={setTheme} />
                 : placeholder('Pusta zakładka')
               ) : role === 'user' ? (
