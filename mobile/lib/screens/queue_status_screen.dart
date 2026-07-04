@@ -199,9 +199,10 @@ class _QueueStatusScreenState extends State<QueueStatusScreen> {
                 _socketService.disconnect();
                 flutterLocalNotificationsPlugin.cancelAll();
                 
-                if (!mounted) return;
+                if (!dialogContext.mounted) return;
                 Navigator.of(dialogContext).pop();
-                Navigator.of(context).pop(); 
+                if (!mounted) return;
+                Navigator.of(context).pop();
               },
               child: const Text('Tak, rezygnuję'),
             ),
