@@ -23,8 +23,13 @@ category, is_active), `tablets` (id, name, location, service_point_id),
 `tickets` (id, ticket_code, status, joined_at, service_point_id).
 
 Endpointy: `POST /api/v1/auth/login` (działa, tylko dla admina),
-`GET /api/v1/kiosk/qr` (mock), `POST /api/v1/queue/join` (mock),
+`GET /api/v1/kiosk/status`, `POST /api/v1/queue/join` (oba wdrożone — patrz sekcja 4),
 CRUD `GET/POST/PUT/DELETE /api/v1/admin/tablets` (działa na realnej bazie).
+
+**Uwaga historyczna:** ta sekcja opisywała stan projektu sprzed refaktoryzacji
+z sekcji 2-4 (parowanie QR, `service_points`, `admins`) — większość z tego
+zostało już wdrożone zgodnie z rekomendacjami poniżej; traktuj resztę
+dokumentu (sekcje 2-8) jako źródło prawdy o bieżącym modelu i endpointach.
 
 **Ważne, zanim ktokolwiek zacznie kodować:** żaden endpoint `/api/v1/admin/*`
 nie jest dziś niczym chroniony — `verify_password`/`create_access_token`
@@ -96,6 +101,7 @@ Legenda: 🆕 nowa tabela, 🔧 zmiana istniejącej, ✅ bez zmian.
 | `description` | String(255), nullable | **nowe** — frontend ma to pole (`AdminLocations.tsx`), dziś go nie ma |
 | `category` | String(100) | zostaje, frontend go nie używa, ale niech będzie na przyszłość |
 | `is_active` | bool, default `True` | bez zmian — używane przy dezaktywacji |
+| `queue_code` | String(2), unique | **wdrożone** — stała litera kolejki (np. "A"), nadawana automatycznie (pierwsza wolna A-Z) przy tworzeniu lokalizacji. Klient wpisuje ją w aplikacji mobilnej, żeby dołączyć do kolejki tej lokalizacji; jest też prefiksem `ticket_code` (np. "A01"). |
 
 Relacje: `1—N` do `tablets` (ale logicznie max 1 aktywny dzięki `UNIQUE`),
 `N—N` do `users` przez tabelę łączącą (niżej), `1—N` do `tickets`.
@@ -134,8 +140,8 @@ jako "wszędzie", nic do zmiany).
 | ~~`location`~~ | — | **usunąć** (patrz pkt. 2.4) |
 | `location_id` | int, FK → `locations.id`, nullable, **UNIQUE** | zmiana nazwy z `service_point_id` dla spójności z frontendem (`locationId`) |
 | `is_active` | bool, default `True` | **nowe** |
-| `last_seen_at` | DateTime(timezone=True), nullable | **nowe** — bije heartbeat przez WS, online = `now - last_seen_at < 45s`. Nie trzymać osobnego boola `online`, bo zostaje "zawieszony" gdy tablet padnie bez grzecznego rozłączenia. |
-| `pairing_token` | String(64), nullable | **nowe** — patrz parowanie w sekcji 5 |
+| `last_seen_at` | DateTime(timezone=True), nullable | **nowe** — bije heartbeat przez `GET /kiosk/status`, online = `now - last_seen_at < 45s`. Nie trzymać osobnego boola `online`, bo zostaje "zawieszony" gdy tablet padnie bez grzecznego rozłączenia. |
+| `pairing_token` | String(64), nullable | **wdrożone** — generowany automatycznie przy `POST /admin/tablets`, zwrócony w odpowiedzi i wyświetlony w panelu webowym (zakładka Tablety) do ręcznego wpisania w aplikacji mobilnej ("Konfiguracja kiosku"). Stały, nie wygasa — to nie jest już jednorazowy token parowania QR (patrz sekcja 4, "Kiosk"). |
 
 ### 🔧 `tickets`
 
@@ -200,25 +206,30 @@ Prefiks i konwencja jak dziś: `/api/v1/...`, zasoby admina pod
 | POST | `/api/v1/admin/tablets/{id}/deactivate` | **kaskada**: `is_active=False`, `location_id=NULL` |
 | DELETE | `/api/v1/admin/tablets/{id}` | ✅ już jest |
 
-### Parowanie nowego tabletu (QR)
+### Parowanie tabletu — token ręczny, nie QR jednorazowy
 
-Dziś `GET /api/v1/kiosk/qr` zwraca atrapę, niepowiązaną z niczym. Pełny flow,
-zgodny z tym co już rysuje UI ("zeskanuj kod QR... Zeskanowano"):
+Zdecydowano inaczej niż pierwotny projekt tej sekcji: parowanie jest ręczne i
+jednorazowe, bez skanowania QR ani wygasających tokenów.
 
 | metoda | ścieżka | opis |
 |---|---|---|
-| GET | `/api/v1/kiosk/qr` | 🔧 generuje krótkożyjący `pairing_token` (np. 60s), **bez tworzenia jeszcze rekordu w `tablets`** — to tylko token wyświetlany jako QR w modalu "Dodaj urządzenie" |
-| POST | `/api/v1/kiosk/pair` | 🆕 wywołuje sam tablet po zeskanowaniu: `{ pairing_token }` → tworzy nowy wiersz w `tablets` (pusta `name`, `location_id=NULL`, `is_active=True`) i zwraca temu urządzeniu jego własny długożyjący `device_token` do dalszej komunikacji (heartbeat przez WS, patrz niżej) |
+| POST | `/api/v1/admin/tablets` | ✅ **wdrożone** — tworzy wiersz w `tablets` (pusta `name`, `location_id=NULL`, `is_active=True`) i **od razu** generuje stały `pairing_token`, zwrócony w odpowiedzi. Panel webowy (zakładka Tablety) wyświetla ten token operatorowi. |
+| GET | `/api/v1/kiosk/status` | ✅ **wdrożone** — heartbeat + stan kiosku. Tablet odpytuje cyklicznie (~20s) z `?tablet_token=<pairing_token>` (query param, bez JWT); serwer bije `last_seen_at` i zwraca `queue_code` + `current_ticket_code` lokalizacji przypisanej temu tabletowi (albo `null`, jeśli tablet nie ma jeszcze przypisanej lokalizacji — admin przypisuje ją później w zakładce Tablety/Lokalizacje). |
+
+Instalator wpisuje `pairing_token` ręcznie w aplikacji mobilnej, w zakładce
+"Konfiguracja kiosku" — od tego momentu tablet zaczyna odpytywać
+`/kiosk/status` i działa jako kiosk, niezależnie od tego, czy ma już
+przypisaną lokalizację.
 
 ### Queue / Tickets
 
 | metoda | ścieżka | opis |
 |---|---|---|
-| POST | `/api/v1/queue/join` | 🔧 dziś mock — ma realnie tworzyć `Ticket(status="WAITING")` dla `location_id`, generować `ticket_code` (sekwencja per lokalizacja, np. dzienny licznik + litera), zwracać kod i pozycję w kolejce |
-| GET | `/api/v1/admin/locations/{id}/queue` | 🆕 lista oczekujących (`status=WAITING`, sortowane po `joined_at`) + aktualnie obsługiwany (`status=SERVING`) |
-| POST | `/api/v1/admin/tickets/{id}/call` | 🆕 `status→SERVING`, `served_by_user_id=<zalogowany>`, `called_at=now` |
-| POST | `/api/v1/admin/tickets/{id}/complete` | 🆕 `status→COMPLETED`, `served_at=now` |
-| POST | `/api/v1/admin/tickets/{id}/cancel` | 🆕 "nie zgłosił się" → `status→CANCELLED`, `served_at=now` |
+| POST | `/api/v1/queue/join` | ✅ **wdrożone** — body `{ queue_code, customer_name?, appointment_time? }`. `queue_code` to stała litera lokalizacji (np. "A"), wpisana ręcznie przez klienta albo zeskanowana z QR na ekranie kiosku (który koduje tę samą literę). Tworzy `Ticket(status="WAITING")`, generuje `ticket_code` = `queue_code` + dwucyfrowy numer w danym dniu (reset codziennie per lokalizacja, np. "A01", "A02"...), zwraca kod i pozycję w kolejce. |
+| GET | `/api/v1/admin/locations/{id}/queue` | ✅ wdrożone — lista oczekujących (`status=WAITING`, sortowane po `joined_at`) + aktualnie obsługiwany (`status=SERVING`) |
+| POST | `/api/v1/admin/tickets/{id}/call` | ✅ wdrożone — `status→SERVING`, `served_by_user_id=<zalogowany>`, `called_at=now` |
+| POST | `/api/v1/admin/tickets/{id}/complete` | ✅ wdrożone — `status→COMPLETED`, `served_at=now` |
+| POST | `/api/v1/admin/tickets/{id}/cancel` | ✅ wdrożone — "nie zgłosił się" → `status→CANCELLED`, `served_at=now` |
 
 ### Dashboard (opcjonalnie, ale polecam)
 

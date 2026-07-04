@@ -65,6 +65,7 @@ def seed_data():
         description="Główna rejestracja przy wejściu",
         category="Rejestracja",
         is_active=True,
+        queue_code="A",
     )
 
     loc2 = Location(
@@ -72,6 +73,7 @@ def seed_data():
         description="Piętro 2, pokój 214",
         category="Kardiologia",
         is_active=True,
+        queue_code="B",
     )
 
     db.add_all([loc1, loc2])
@@ -93,12 +95,14 @@ def seed_data():
         name="Kiosk Rejestracja",
         location_id=loc1.id,
         is_active=True,
+        pairing_token="DEV1-TAB1",
     )
 
     tab2 = Tablet(
         name="Kiosk Kardiologia",
         location_id=loc2.id,
         is_active=True,
+        pairing_token="DEV2-TAB2",
     )
 
     db.add_all([tab1, tab2])
@@ -110,51 +114,51 @@ def seed_data():
 
     now = datetime.now(timezone.utc)
 
-    # Rejestracja — 3 oczekujące + 1 obsługiwany
+    # Rejestracja — 3 oczekujące + 1 obsługiwany. Bez customer_name: apka
+    # mobilna dziś nie zbiera imienia/nazwiska przy dołączeniu do kolejki —
+    # frontend sam pokazuje wtedy "Zgłoszenie <kod>" (patrz UserQueue.tsx),
+    # więc dane testowe mają wyglądać tak, jak realnie dodane zgłoszenie.
     tickets_loc1 = [
         Ticket(
-            ticket_code="A2F",
-            status="WAITING",
-            location_id=loc1.id,
-            joined_at=now - timedelta(minutes=25),
-            customer_name="Piotr Wiśniewski",
-        ),
-        Ticket(
-            ticket_code="B7K",
-            status="WAITING",
-            location_id=loc1.id,
-            joined_at=now - timedelta(minutes=15),
-        ),
-        Ticket(
-            ticket_code="C3M",
-            status="WAITING",
-            location_id=loc1.id,
-            joined_at=now - timedelta(minutes=5),
-            appointment_time="10:30",
-        ),
-        Ticket(
-            ticket_code="D9X",
+            ticket_code="A01",
             status="SERVING",
             location_id=loc1.id,
             joined_at=now - timedelta(minutes=35),
             called_at=now - timedelta(minutes=2),
             served_by_user_id=op1.id,
-            customer_name="Maria Zielińska",
+        ),
+        Ticket(
+            ticket_code="A02",
+            status="WAITING",
+            location_id=loc1.id,
+            joined_at=now - timedelta(minutes=25),
+        ),
+        Ticket(
+            ticket_code="A03",
+            status="WAITING",
+            location_id=loc1.id,
+            joined_at=now - timedelta(minutes=15),
+        ),
+        Ticket(
+            ticket_code="A04",
+            status="WAITING",
+            location_id=loc1.id,
+            joined_at=now - timedelta(minutes=5),
+            appointment_time="10:30",
         ),
     ]
 
     # Kardiologia — 2 oczekujące
     tickets_loc2 = [
         Ticket(
-            ticket_code="E5P",
+            ticket_code="B01",
             status="WAITING",
             location_id=loc2.id,
             joined_at=now - timedelta(minutes=40),
             appointment_time="09:45",
-            customer_name="Tomasz Jankowski",
         ),
         Ticket(
-            ticket_code="F2R",
+            ticket_code="B02",
             status="WAITING",
             location_id=loc2.id,
             joined_at=now - timedelta(minutes=20),

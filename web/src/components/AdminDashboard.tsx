@@ -90,6 +90,39 @@ function TabletIcon({ size = 22 }: { size?: number }) {
   );
 }
 
+/** Pole tylko-do-odczytu z tokenem parowania + przyciskiem kopiowania. */
+function TokenField({ token }: { token: string }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(token);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // schowek niedostępny (np. brak uprawnień) — token można i tak zaznaczyć ręcznie
+    }
+  };
+
+  return (
+    <div style={{ display: 'flex', gap: 8 }}>
+      <div style={{
+        ...inputStyle, flex: 1, fontFamily: 'monospace', fontWeight: 700, letterSpacing: '0.04em',
+        display: 'flex', alignItems: 'center', background: 'var(--surface-sunken)',
+      }}>
+        {token}
+      </div>
+      <button
+        onClick={handleCopy}
+        title="Kopiuj token"
+        style={{ ...btnSecondary, padding: '0 16px', minWidth: 96 }}
+      >
+        {copied ? 'Skopiowano!' : 'Kopiuj'}
+      </button>
+    </div>
+  );
+}
+
 /* ── slide panel (matches AdminUsers) ─────────────────── */
 
 function SlidePanel({ title, open, onClose, children, footer }: {
@@ -227,7 +260,7 @@ const AdminDashboard = forwardRef<RefreshHandle, { addOpen?: boolean; onAddClose
   const handleToggleActive = async (device: TabletResponse) => {
     if (device.is_active) {
       const ok = await confirmDialog(
-        `Czy na pewno chcesz dezaktywować tablet "${device.name || 'bez nazwy'}"? Zostanie odłączony od przypisanej lokalizacji.`,
+        `Czy na pewno chcesz dezaktywować tablet "${device.name || 'bez nazwy'}"? Zostanie odłączony od przypisanej lokalizacji, a na jego ekranie pojawi się komunikat o wyłączeniu — token pozostaje zapamiętany, więc po ponownym włączeniu wróci sam.`,
         { title: 'Dezaktywuj tablet', tone: 'danger', confirmLabel: 'Dezaktywuj' }
       );
       if (!ok) return;
@@ -235,19 +268,42 @@ const AdminDashboard = forwardRef<RefreshHandle, { addOpen?: boolean; onAddClose
     try {
       const updated = await api.post<TabletResponse>(`/admin/tablets/${device.id}/${device.is_active ? 'deactivate' : 'activate'}`);
       setDevices(prev => prev.map(d => d.id === updated.id ? updated : d));
+      setEditingDevice(prev => prev && prev.id === updated.id ? updated : prev);
     } catch (err) {
       alertDialog(err instanceof ApiError ? err.message : 'Nie udało się zmienić statusu tabletu.', { title: 'Błąd', tone: 'danger' });
     }
   };
 
-  const handleSimulateScan = async () => {
+  const handleResetPairing = async (device: TabletResponse) => {
+    const ok = await confirmDialog(
+      `Czy na pewno chcesz zresetować token parowania tabletu "${device.name || 'bez nazwy'}"? Obecnie sparowane urządzenie zostanie wylogowane i będzie wymagało ponownego wpisania nowego tokenu w aplikacji mobilnej.`,
+      { title: 'Resetuj token parowania', tone: 'danger', confirmLabel: 'Resetuj' }
+    );
+    if (!ok) return;
+    try {
+      const updated = await api.post<TabletResponse>(`/admin/tablets/${device.id}/reset-pairing`);
+      setDevices(prev => prev.map(d => d.id === updated.id ? updated : d));
+      setEditingDevice(prev => prev && prev.id === updated.id ? updated : prev);
+    } catch (err) {
+      alertDialog(err instanceof ApiError ? err.message : 'Nie udało się zresetować tokenu.', { title: 'Błąd', tone: 'danger' });
+    }
+  };
+
+  const [createdTablet, setCreatedTablet] = useState<TabletResponse | null>(null);
+
+  const handleCreateTablet = async () => {
     try {
       const created = await api.post<TabletResponse>('/admin/tablets', { name: '', location_id: null });
       setDevices(prev => prev.some(d => d.id === created.id) ? prev : [...prev, created]);
-      onAddClose?.();
+      setCreatedTablet(created);
     } catch (err) {
       alertDialog(err instanceof ApiError ? err.message : 'Nie udało się dodać tabletu.', { title: 'Błąd', tone: 'danger' });
     }
+  };
+
+  const closeAddModal = () => {
+    setCreatedTablet(null);
+    onAddClose?.();
   };
 
   const handleSaveEdit = async () => {
@@ -367,30 +423,47 @@ const AdminDashboard = forwardRef<RefreshHandle, { addOpen?: boolean; onAddClose
         </div>
       )}
 
-      {/* ── Add device modal (simulated QR scan) ─────────── */}
+      {/* ── Add device modal ──────────────────────────────── */}
       {addOpen && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(12,16,19,0.55)', padding: 16 }}>
-          <div style={{ width: '100%', maxWidth: 360, background: 'var(--surface-card)', borderRadius: 'var(--radius-xl)', padding: 28, boxShadow: '0 18px 48px rgba(21,27,31,0.16)' }}>
-            <h3 style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 18, color: 'var(--text-strong)', textAlign: 'center', marginBottom: 6 }}>Skonfiguruj nowe urządzenie</h3>
-            <p style={{ fontFamily: 'var(--font-ui)', fontSize: 13.5, color: 'var(--text-muted)', textAlign: 'center', marginBottom: 24 }}>
-              Uruchom aplikację eQue na nowym tablecie i zeskanuj poniższy kod QR.
-            </p>
-            <div style={{ margin: '0 auto 28px', width: 160, height: 160, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 'var(--radius-md)', border: '2px dashed var(--border-default)', background: 'var(--surface-sunken)' }}>
-              <svg width="80" height="80" viewBox="0 0 24 24" fill="none" stroke="var(--text-faint)" strokeWidth="1">
-                <path d="M3 3h6v6H3V3zm12 0h6v6h-6V3zM3 15h6v6H3v-6zm12 0h6v6h-6v-6z" />
-              </svg>
-            </div>
-            <div style={{ display: 'flex', gap: 10 }}>
-              <button style={{ ...btnSecondary, flex: 1 }} onClick={onAddClose}>Wstecz</button>
-              <button
-                style={{ ...btnPrimary, flex: 1 }}
-                onClick={handleSimulateScan}
-                onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--brand-hover)'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--brand)'; }}
-              >
-                Zeskanowano
-              </button>
-            </div>
+          <div style={{ width: '100%', maxWidth: 400, background: 'var(--surface-card)', borderRadius: 'var(--radius-xl)', padding: 28, boxShadow: '0 18px 48px rgba(21,27,31,0.16)' }}>
+            {!createdTablet ? (
+              <>
+                <h3 style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 18, color: 'var(--text-strong)', textAlign: 'center', marginBottom: 6 }}>Dodaj nowy tablet</h3>
+                <p style={{ fontFamily: 'var(--font-ui)', fontSize: 13.5, color: 'var(--text-muted)', textAlign: 'center', marginBottom: 24 }}>
+                  Wygenerujemy token parowania. Wpisz go w aplikacji mobilnej na tablecie, w zakładce „Konfiguracja kiosku”.
+                </p>
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <button style={{ ...btnSecondary, flex: 1 }} onClick={closeAddModal}>Anuluj</button>
+                  <button
+                    style={{ ...btnPrimary, flex: 1 }}
+                    onClick={handleCreateTablet}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--brand-hover)'; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--brand)'; }}
+                  >
+                    Utwórz tablet
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <h3 style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 18, color: 'var(--text-strong)', textAlign: 'center', marginBottom: 6 }}>Tablet utworzony</h3>
+                <p style={{ fontFamily: 'var(--font-ui)', fontSize: 13.5, color: 'var(--text-muted)', textAlign: 'center', marginBottom: 20 }}>
+                  Wpisz ten token w aplikacji mobilnej na tablecie („Konfiguracja kiosku”), aby uruchomić kiosk. Następnie przypisz tabletowi lokalizację poniżej w edycji.
+                </p>
+                <div style={{ marginBottom: 24 }}>
+                  <TokenField token={createdTablet.pairing_token ?? ''} />
+                </div>
+                <button
+                  style={{ ...btnPrimary, width: '100%' }}
+                  onClick={closeAddModal}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--brand-hover)'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--brand)'; }}
+                >
+                  Gotowe
+                </button>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -443,6 +516,21 @@ const AdminDashboard = forwardRef<RefreshHandle, { addOpen?: boolean; onAddClose
                   onBlur={e => { e.currentTarget.style.borderColor = 'var(--border-default)'; }}
                 />
               </Field>
+
+              {editingDevice.pairing_token && (
+                <Field label="Token parowania (Konfiguracja kiosku w apce mobilnej)">
+                  <TokenField token={editingDevice.pairing_token} />
+                  <button
+                    onClick={() => handleResetPairing(editingDevice)}
+                    style={{ ...btnSecondary, marginTop: 8, width: '100%', color: 'var(--red-600)', borderColor: 'var(--red-100)' }}
+                  >
+                    Resetuj token parowania
+                  </button>
+                  <p style={{ fontFamily: 'var(--font-ui)', fontSize: 12.5, color: 'var(--text-faint)', margin: '6px 0 0' }}>
+                    Wyloguje obecnie sparowane urządzenie — trzeba będzie wpisać nowy token ręcznie.
+                  </p>
+                </Field>
+              )}
 
               <Field label="Przypisana lokalizacja">
                 <Select

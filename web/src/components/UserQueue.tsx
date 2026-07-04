@@ -144,6 +144,16 @@ const UserQueue = forwardRef<RefreshHandle, { userName: string; locationIds: num
     return () => { offCreated(); offUpdated(); };
   }, [selectedLocationId, refetchQueue]);
 
+  /* Zmiana accepting_new_tickets (np. przez innego operatora albo to samo
+     urządzenie w innej karcie) — trzymaj lokalny stan lokalizacji na żywo. */
+  useEffect(() => {
+    const offLocUpdated = ws.on('location.updated', msg => {
+      const location = msg.location as LocationResponse;
+      setAllLocations(prev => prev.map(l => l.id === location.id ? location : l));
+    });
+    return () => { offLocUpdated(); };
+  }, []);
+
   const selectLocation = (id: string) => {
     setSelectedLocationId(id ? Number(id) : '');
     setQueue(null);
@@ -185,6 +195,23 @@ const UserQueue = forwardRef<RefreshHandle, { userName: string; locationIds: num
     callTicket(queue.waiting[0].id);
   };
 
+  const selectedLocation = selectedLocationId !== ''
+    ? allLocations.find(l => l.id === selectedLocationId) ?? null
+    : null;
+
+  /* Wstrzymanie NOWYCH zapisów przez operatora — inne niż dezaktywacja tabletu
+     przez admina (zakładka Tablety): obsługa już czekających trwa dalej. */
+  const toggleAcceptingTickets = async () => {
+    if (!selectedLocation) return;
+    const action = selectedLocation.accepting_new_tickets ? 'pause-queue' : 'resume-queue';
+    try {
+      const updated = await api.post<LocationResponse>(`/admin/locations/${selectedLocation.id}/${action}`);
+      setAllLocations(prev => prev.map(l => l.id === updated.id ? updated : l));
+    } catch (err) {
+      alertDialog(err instanceof ApiError ? err.message : 'Nie udało się zmienić stanu zapisów.', { title: 'Błąd', tone: 'danger' });
+    }
+  };
+
   const sessionCompleted = selectedLocationId !== ''
     ? getActivity().filter(a => a.locationId === selectedLocationId)
     : [];
@@ -224,13 +251,35 @@ const UserQueue = forwardRef<RefreshHandle, { userName: string; locationIds: num
             Nie masz przypisanych żadnych lokalizacji. Skontaktuj się z administratorem.
           </p>
         ) : (
-          <Select
-            value={selectedLocationId === '' ? '' : String(selectedLocationId)}
-            onChange={selectLocation}
-            placeholder="— Wybierz lokalizację —"
-            style={{ width: 240 }}
-            options={availableLocations.map(loc => ({ value: String(loc.id), label: loc.name }))}
-          />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            {selectedLocation && (
+              <>
+                {!selectedLocation.accepting_new_tickets && <StatusPill tone="amber">ZAPISY WSTRZYMANE</StatusPill>}
+                <button
+                  onClick={toggleAcceptingTickets}
+                  title="Wstrzymuje TYLKO nowe zgłoszenia — obsługa już czekających trwa dalej. To nie to samo, co wyłączenie tabletu przez admina."
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 8,
+                    background: 'none', cursor: 'pointer',
+                    border: `1.5px solid ${selectedLocation.accepting_new_tickets ? 'var(--border-default)' : 'var(--amber-500)'}`,
+                    borderRadius: 'var(--radius-md)', padding: '9px 16px',
+                    fontFamily: 'var(--font-ui)', fontWeight: 700, fontSize: 13.5,
+                    color: selectedLocation.accepting_new_tickets ? 'var(--text-body)' : 'var(--amber-700)',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {selectedLocation.accepting_new_tickets ? 'Wstrzymaj zapisy' : 'Wznów zapisy'}
+                </button>
+              </>
+            )}
+            <Select
+              value={selectedLocationId === '' ? '' : String(selectedLocationId)}
+              onChange={selectLocation}
+              placeholder="— Wybierz lokalizację —"
+              style={{ width: 240 }}
+              options={availableLocations.map(loc => ({ value: String(loc.id), label: loc.name }))}
+            />
+          </div>
         )}
       </div>
 

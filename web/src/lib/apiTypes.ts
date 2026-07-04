@@ -30,6 +30,8 @@ export interface LocationResponse {
   description: string | null;
   category: string;
   is_active: boolean;
+  queue_code: string;
+  accepting_new_tickets: boolean;
   tablet: TabletInLocation | null;
   user_ids: string[];
 }
@@ -41,6 +43,7 @@ export interface TabletResponse {
   is_active: boolean;
   last_seen_at: string | null;
   online: boolean;
+  pairing_token: string | null;
 }
 
 export interface UserResponse {

@@ -49,6 +49,14 @@ class Location(Base):
     description: Mapped[str | None] = mapped_column(String(255), nullable=True)  # nowe — AdminLocations.tsx
     category: Mapped[str] = mapped_column(String(100))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Stała litera kolejki (np. "A") — nadawana automatycznie przy tworzeniu lokalizacji,
+    # klient wpisuje ją w aplikacji mobilnej, żeby dołączyć do kolejki tej lokalizacji.
+    # Prefiks numerów biletów: "A01", "A02"...
+    queue_code: Mapped[str] = mapped_column(String(2), unique=True)
+    # Wstrzymanie NOWYCH zapisów przez operatora (np. koniec zmiany) — inne niż
+    # is_active/dezaktywacja tabletu przez admina: obsługa już czekających
+    # biletów trwa dalej, tylko queue/join odmawia nowym klientom.
+    accepting_new_tickets: Mapped[bool] = mapped_column(Boolean, default=True)
 
     # Jeden-do-wielu: jedna lokalizacja może mieć wiele tabletów (max 1 aktywny dzięki UNIQUE na tablets.location_id)
     tablets: Mapped[list["Tablet"]] = relationship(back_populates="location")
@@ -79,6 +87,10 @@ class Tablet(Base):
         DateTime(timezone=True), nullable=True
     )
     pairing_token: Mapped[str | None] = mapped_column(String(64), nullable=True)  # nowe — parowanie QR
+    # Identyfikator konkretnego urządzenia (generowany i zapamiętywany przez apkę
+    # mobilną), który "przejmuje" pairing_token przy pierwszym użyciu — wymusza
+    # regułę "jeden token = jeden fizyczny tablet". Zerowane przy reset-pairing.
+    paired_device_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     # Relacja zwrotna
     location: Mapped["Location | None"] = relationship(back_populates="tablets")

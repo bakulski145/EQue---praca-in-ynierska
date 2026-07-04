@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
@@ -6,45 +5,57 @@ import 'package:http/http.dart' as http;
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../api_config.dart';
-import '../main.dart'; 
+import '../main.dart';
 import '../services/queue_socket_service.dart';
 
 class QueueStatusScreen extends StatefulWidget {
-  final String scannedToken; 
+  final String scannedToken;
+  // true = scannedToken to już istniejący kod BILETU (powrót z ekranu głównego
+  // po odświeżeniu apki) — wtedy NIE wołamy /queue/join drugi raz (to by
+  // utworzyło duplikat biletu), tylko dociągamy stan istniejącego biletu.
+  // false (domyślnie) = scannedToken to KOD ZAPISU (4 cyfry z ekranu kiosku) do dołączenia.
+  final bool resumeExisting;
 
-  const QueueStatusScreen({super.key, required this.scannedToken});
+  const QueueStatusScreen({super.key, required this.scannedToken, this.resumeExisting = false});
 
   @override
   State<QueueStatusScreen> createState() => _QueueStatusScreenState();
 }
 
 class _QueueStatusScreenState extends State<QueueStatusScreen> {
-  final QueueSocketService _socketService = QueueSocketService();
-  StreamSubscription? _socketSubscription;
+  QueueSocketService? _socketService;
 
-  String? _prawdziwyNumerBiletu; 
+  String? _prawdziwyNumerBiletu;
 
   int _osobyPrzedNami = 0;
   int _poczatkoweOsoby = 0;
   int _szacowanyCzasMinuty = 0;
-  
+  // Prawdziwe "twoja kolej" następuje WYŁĄCZNIE po evencie YOUR_TURN, czyli
+  // gdy operator w panelu webowym naciśnie "Wezwij" — samo osiągnięcie
+  // pozycji 0 w kolejce (bycie następnym w kolejności) to NIE to samo.
+  bool _czyWezwano = false;
+
   bool _isLoading = true;
   String? _errorMessage;
 
   @override
   void initState() {
     super.initState();
-    _pobierzDaneStartoweIDolacz();
+    if (widget.resumeExisting) {
+      _wznowIstniejacyBilet();
+    } else {
+      _dolaczDoKolejki();
+    }
   }
 
-  Future<void> _pobierzDaneStartoweIDolacz() async {
+  Future<void> _dolaczDoKolejki() async {
     final apiUrl = Uri.parse(ApiConfig.joinQueueUrl);
 
     try {
       final response = await http.post(
         apiUrl,
         headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'qr_token': widget.scannedToken}), 
+        body: jsonEncode({'signup_code': widget.scannedToken}),
       ).timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200 || response.statusCode == 201) {
@@ -52,7 +63,7 @@ class _QueueStatusScreenState extends State<QueueStatusScreen> {
 
         if (!mounted) return;
         setState(() {
-          _prawdziwyNumerBiletu = data['ticket_code']; 
+          _prawdziwyNumerBiletu = data['ticket_code'];
           _osobyPrzedNami = data['queue_position'] ?? 0;
           _poczatkoweOsoby = data['queue_position'] ?? 0;
           _szacowanyCzasMinuty = data['estimated_wait_time_minutes'] ?? 0;
@@ -60,22 +71,19 @@ class _QueueStatusScreenState extends State<QueueStatusScreen> {
         });
 
         if (_prawdziwyNumerBiletu != null) {
-          // 1. Zapisujemy bilet w pamięci telefonu
-          final prefs = await SharedPreferences.getInstance();
-          await prefs.setString('aktywny_bilet', _prawdziwyNumerBiletu!);
-
-          // 2. Prosimy o uprawnienia do powiadomień (Android 13+)
-          if (await Permission.notification.isDenied) {
-            await Permission.notification.request();
-          }
-
-          // 3. Łączymy się z WebSocketem
+          await _zapiszAktywnyBilet(_prawdziwyNumerBiletu!);
+          await _poprosOUprawnienia();
           _podlaczWebSocket();
         }
       } else {
         if (!mounted) return;
+        String detail = 'Błąd serwera (Kod: ${response.statusCode})';
+        try {
+          final body = jsonDecode(response.body);
+          if (body is Map && body['detail'] is String) detail = body['detail'];
+        } catch (_) {}
         setState(() {
-          _errorMessage = 'Błąd serwera (Kod: ${response.statusCode})';
+          _errorMessage = detail;
           _isLoading = false;
         });
       }
@@ -88,45 +96,147 @@ class _QueueStatusScreenState extends State<QueueStatusScreen> {
     }
   }
 
-  void _podlaczWebSocket() {
-    _socketSubscription = _socketService.connectToQueue(_prawdziwyNumerBiletu!).listen(
-      (data) async {
-        if (!mounted) return;
-        setState(() {
-          final String event = data['event'] ?? '';
+  /// Wznawia PODGLĄD istniejącego biletu (np. po odświeżeniu apki) — dociąga
+  /// jego aktualny stan przez REST zamiast dołączać do kolejki po raz drugi.
+  Future<void> _wznowIstniejacyBilet() async {
+    _prawdziwyNumerBiletu = widget.scannedToken;
+    final ok = await _odswiezStanBiletu(pokazBladPolaczenia: true);
+    if (!ok || !mounted) return;
 
-          if (event == 'QUEUE_UPDATE') {
-            final int noweOsoby = data['queue_position'] ?? _osobyPrzedNami;
-            _szacowanyCzasMinuty = data['estimated_wait_time_minutes'] ?? _szacowanyCzasMinuty;
+    setState(() => _isLoading = false);
+    await _poprosOUprawnienia();
+    _podlaczWebSocket();
+  }
 
-            if (noweOsoby < _osobyPrzedNami) {
-              _pokazPowiadomienie(noweOsoby);
-            }
-            _osobyPrzedNami = noweOsoby;
+  Future<void> _poprosOUprawnienia() async {
+    if (await Permission.notification.isDenied) {
+      await Permission.notification.request();
+    }
+  }
 
-          } else if (event == 'YOUR_TURN') {
-            _osobyPrzedNami = 0;
-            _szacowanyCzasMinuty = 0;
-            _pokazPowiadomienie(0);
-          }
-        });
+  Future<void> _zapiszAktywnyBilet(String kod) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('aktywny_bilet', kod);
+  }
 
-        // Jeśli to już nasza kolej, usuwamy zapisany bilet z pamięci
-        if (data['event'] == 'YOUR_TURN') {
-          final prefs = await SharedPreferences.getInstance();
-          await prefs.remove('aktywny_bilet');
+  /// Publiczny, bezstanowy odczyt aktualnego stanu biletu (GET
+  /// /queue/ticket/{code}) — jedyne autorytatywne źródło prawdy, wołane przy
+  /// starcie ekranu ORAZ przy każdym (re)połączeniu WS. Bez tego jednorazowy
+  /// event YOUR_TURN/QUEUE_UPDATE przegapiony w złym momencie (gniazdo padło
+  /// tuż przed wezwaniem, albo dopiero się łączyło) zostawiałby pacjenta na
+  /// zawsze z nieaktualnym stanem — WS nie ma pamięci ani powtórek.
+  /// Zwraca false, jeśli bilet już nie istnieje / jest w stanie końcowym.
+  Future<bool> _odswiezStanBiletu({bool pokazBladPolaczenia = false}) async {
+    if (_prawdziwyNumerBiletu == null) return false;
+    final url = Uri.parse('${ApiConfig.baseUrl}/api/v1/queue/ticket/$_prawdziwyNumerBiletu');
+
+    try {
+      final response = await http.get(url).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 404) {
+        await _wyczyscZakonczonyBilet();
+        return false;
+      }
+      if (response.statusCode != 200) {
+        if (pokazBladPolaczenia && mounted) {
+          setState(() {
+            _errorMessage = 'Błąd serwera (Kod: ${response.statusCode})';
+            _isLoading = false;
+          });
         }
-      },
-      onError: (error) {
-        debugPrint('Błąd WebSocketa: $error');
-      },
-    );
+        return false;
+      }
+
+      final data = jsonDecode(response.body);
+      final String status = data['status'] ?? 'WAITING';
+
+      if (status == 'COMPLETED' || status == 'CANCELLED') {
+        await _wyczyscZakonczonyBilet();
+        return false;
+      }
+
+      if (!mounted) return true;
+      setState(() {
+        if (status == 'SERVING') {
+          _czyWezwano = true;
+          _osobyPrzedNami = 0;
+          _szacowanyCzasMinuty = 0;
+        } else {
+          _osobyPrzedNami = data['queue_position'] ?? _osobyPrzedNami;
+          _szacowanyCzasMinuty = data['estimated_wait_time_minutes'] ?? _szacowanyCzasMinuty;
+          if (_poczatkoweOsoby == 0) _poczatkoweOsoby = _osobyPrzedNami;
+        }
+      });
+      return true;
+    } catch (_) {
+      if (pokazBladPolaczenia && mounted) {
+        setState(() {
+          _errorMessage = 'Brak połączenia z backendem eQue. Upewnij się, że serwer działa.';
+          _isLoading = false;
+        });
+      }
+      return false;
+    }
+  }
+
+  Future<void> _wyczyscZakonczonyBilet() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('aktywny_bilet');
+    if (!mounted) return;
+    setState(() {
+      _errorMessage = 'Ten bilet został już obsłużony albo anulowany.';
+      _isLoading = false;
+    });
+  }
+
+  void _podlaczWebSocket() {
+    if (_prawdziwyNumerBiletu == null) return;
+    _socketService = QueueSocketService(
+      ticketCode: _prawdziwyNumerBiletu!,
+      onEvent: _obsluzZdarzenieWs,
+      // Domyka wyścig: nawet gdyby serwer wysłał YOUR_TURN zanim gniazdo
+      // zdążyło się podłączyć/zasubskrybować, ten fetch i tak dociągnie
+      // prawdziwy stan zaraz po (re)połączeniu.
+      onOpen: () => _odswiezStanBiletu(),
+    )..connect();
+  }
+
+  void _obsluzZdarzenieWs(Map<String, dynamic> data) async {
+    if (!mounted) return;
+    final String event = data['event'] ?? '';
+
+    setState(() {
+      if (event == 'QUEUE_UPDATE') {
+        final int noweOsoby = data['queue_position'] ?? _osobyPrzedNami;
+        _szacowanyCzasMinuty = data['estimated_wait_time_minutes'] ?? _szacowanyCzasMinuty;
+
+        // To tylko przesunięcie w kolejce (ktoś przed nami został
+        // obsłużony) — NIE oznacza wezwania, więc nigdy nie ustawiamy tu
+        // _czyWezwano. Nawet przy pozycji 0 czekamy na osobny YOUR_TURN.
+        if (noweOsoby < _osobyPrzedNami) {
+          _pokazPowiadomienie(noweOsoby);
+        }
+        _osobyPrzedNami = noweOsoby;
+
+      } else if (event == 'YOUR_TURN') {
+        // Jedyny moment, w którym pokazujemy "TWOJA KOLEJ" — operator
+        // jawnie nacisnął "Wezwij" przy naszym bilecie w panelu webowym.
+        _czyWezwano = true;
+        _osobyPrzedNami = 0;
+        _szacowanyCzasMinuty = 0;
+        _pokazPowiadomienie(0);
+      }
+    });
+
+    if (event == 'YOUR_TURN') {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('aktywny_bilet');
+    }
   }
 
   @override
   void dispose() {
-    _socketSubscription?.cancel();
-    _socketService.disconnect();
+    _socketService?.disconnect();
     super.dispose();
   }
 
@@ -152,7 +262,7 @@ class _QueueStatusScreenState extends State<QueueStatusScreen> {
       await flutterLocalNotificationsPlugin.show(
         id: 1,
         title: '🔔 ZARAZ TWOJA KOLEJ!',
-        body: 'Podejdź do wyznaczonego stanowiska (Okienko 3).',
+        body: 'Podejdź do punktu obsługi.',
         notificationDetails: platformChannelSpecifics,
       );
     }
@@ -190,15 +300,14 @@ class _QueueStatusScreenState extends State<QueueStatusScreen> {
                 // 1. Wyczyszczenie pamięci lokalnej
                 final prefs = await SharedPreferences.getInstance();
                 await prefs.remove('aktywny_bilet');
-                
+
                 // 2. Zgłoszenie rezygnacji do backendu
                 await _anulujBiletNaSerwerze();
 
                 // 3. Rozłączenie gniazda i wyłączenie powiadomień
-                _socketSubscription?.cancel();
-                _socketService.disconnect();
+                _socketService?.disconnect();
                 flutterLocalNotificationsPlugin.cancelAll();
-                
+
                 if (!dialogContext.mounted) return;
                 Navigator.of(dialogContext).pop();
                 if (!mounted) return;
@@ -249,7 +358,11 @@ class _QueueStatusScreenState extends State<QueueStatusScreen> {
                       _isLoading = true;
                       _errorMessage = null;
                     });
-                    _pobierzDaneStartoweIDolacz();
+                    if (widget.resumeExisting) {
+                      _wznowIstniejacyBilet();
+                    } else {
+                      _dolaczDoKolejki();
+                    }
                   },
                   child: const Text('Spróbuj ponownie'),
                 ),
@@ -291,17 +404,23 @@ class _QueueStatusScreenState extends State<QueueStatusScreen> {
               children: [
                 const Text('Twój numer biletowy:', style: TextStyle(fontSize: 14, color: Colors.black54)),
                 Text(
-                  _prawdziwyNumerBiletu ?? '...', 
+                  _prawdziwyNumerBiletu ?? '...',
                   style: const TextStyle(fontSize: 56, fontWeight: FontWeight.w900, color: Color(0xFF1877F2), letterSpacing: 2),
                 ),
                 const Divider(height: 40, thickness: 1),
-                if (_osobyPrzedNami > 0) ...[
+                if (!_czyWezwano) ...[
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('STANOWISKO', style: TextStyle(fontSize: 11, color: Colors.black54, fontWeight: FontWeight.bold)),
-                      const SizedBox(height: 4),
-                      const Text('Okienko 3 (Rejestracja)', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87)),
+                      if (_osobyPrzedNami == 0) ...[
+                        const Text('JESTEŚ NASTĘPNY', style: TextStyle(fontSize: 11, color: Colors.black54, fontWeight: FontWeight.bold)),
+                        const SizedBox(height: 4),
+                        const Text('Czekaj na wezwanie przez operatora', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87)),
+                      ] else ...[
+                        const Text('STANOWISKO', style: TextStyle(fontSize: 11, color: Colors.black54, fontWeight: FontWeight.bold)),
+                        const SizedBox(height: 4),
+                        const Text('Okienko 3 (Rejestracja)', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87)),
+                      ],
                       const SizedBox(height: 24),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -363,13 +482,13 @@ class _QueueStatusScreenState extends State<QueueStatusScreen> {
                         SizedBox(height: 16),
                         Text('TWOJA KOLEJ!', style: TextStyle(fontSize: 28, fontWeight: FontWeight.w900, color: Colors.green)),
                         SizedBox(height: 8),
-                        Text('Podejdź do punktu obsługi\n(Okienko 3)', textAlign: TextAlign.center, style: TextStyle(fontSize: 16, color: Colors.black87, fontWeight: FontWeight.bold)),
+                        Text('Podejdź do punktu obsługi', textAlign: TextAlign.center, style: TextStyle(fontSize: 16, color: Colors.black87, fontWeight: FontWeight.bold)),
                       ],
                     ),
                   ),
                 ],
                 const SizedBox(height: 32),
-                if (_osobyPrzedNami > 0)
+                if (!_czyWezwano)
                   TextButton.icon(
                     onPressed: _potwierdzOpuszczenieKolejki,
                     icon: const Icon(Icons.exit_to_app, color: Colors.redAccent),

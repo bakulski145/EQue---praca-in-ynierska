@@ -26,6 +26,20 @@ function LocationIcon({ size = 22 }: { size?: number }) {
   );
 }
 
+/** Odznaka z literą kodu kolejki lokalizacji (np. "A") — to ją klient wpisuje w apce mobilnej. */
+function QueueCodeBadge({ code }: { code: string }) {
+  return (
+    <span title="Kod kolejki dla klientów" style={{
+      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+      width: 26, height: 26, borderRadius: '50%', flexShrink: 0,
+      background: 'var(--brand-subtle)', color: 'var(--text-brand)',
+      fontFamily: 'var(--font-ui)', fontWeight: 700, fontSize: 13,
+    }}>
+      {code}
+    </span>
+  );
+}
+
 function StatusBadge({ tone, children }: { tone: 'success' | 'neutral'; children: React.ReactNode }) {
   const map = {
     success: { fg: 'var(--green-700)', bg: 'var(--green-50)', bd: 'var(--green-100)', dot: 'var(--green-600)' },
@@ -144,6 +158,7 @@ interface LocationDraft {
   name: string;
   description: string;
   is_active: boolean;
+  queue_code: string;
   tablet_id: number | null;
   user_ids: string[];
 }
@@ -224,6 +239,7 @@ const AdminLocations = forwardRef<RefreshHandle, { addOpen?: boolean; onAddClose
       name: location.name,
       description: location.description ?? '',
       is_active: location.is_active,
+      queue_code: location.queue_code,
       tablet_id: location.tablet?.id ?? null,
       user_ids: [...location.user_ids],
     });
@@ -349,8 +365,11 @@ const AdminLocations = forwardRef<RefreshHandle, { addOpen?: boolean; onAddClose
                   <LocationIcon size={20} />
                 </div>
                 <div style={{ minWidth: 0 }}>
-                  <div style={{ fontFamily: 'var(--font-ui)', fontWeight: 700, fontSize: 15.5, color: 'var(--text-strong)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {location.name}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontFamily: 'var(--font-ui)', fontWeight: 700, fontSize: 15.5, color: 'var(--text-strong)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {location.name}
+                    </span>
+                    <QueueCodeBadge code={location.queue_code} />
                   </div>
                   <div style={{ fontFamily: 'var(--font-ui)', fontSize: 13, color: 'var(--text-muted)', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                     {location.description || 'Brak opisu'}
@@ -469,8 +488,11 @@ const AdminLocations = forwardRef<RefreshHandle, { addOpen?: boolean; onAddClose
                 <LocationIcon size={22} />
               </div>
               <div>
-                <div style={{ fontFamily: 'var(--font-ui)', fontWeight: 700, fontSize: 16, color: 'var(--text-strong)' }}>
-                  {editingLocation.name || '—'}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontFamily: 'var(--font-ui)', fontWeight: 700, fontSize: 16, color: 'var(--text-strong)' }}>
+                    {editingLocation.name || '—'}
+                  </span>
+                  <QueueCodeBadge code={editingLocation.queue_code} />
                 </div>
                 <div style={{ marginTop: 5 }}>
                   <StatusBadge tone={editingLocation.is_active ? 'success' : 'neutral'}>
@@ -479,6 +501,10 @@ const AdminLocations = forwardRef<RefreshHandle, { addOpen?: boolean; onAddClose
                 </div>
               </div>
             </div>
+
+            <p style={{ fontFamily: 'var(--font-ui)', fontSize: 12.5, color: 'var(--text-faint)', margin: '-8px 0 0' }}>
+              Kod kolejki „{editingLocation.queue_code}” wpisują klienci w aplikacji mobilnej, aby dołączyć do tej kolejki. Jest nadawany automatycznie i się nie zmienia.
+            </p>
 
             <Field label="Nazwa lokalizacji">
               <input style={inputStyle} type="text" value={editingLocation.name}

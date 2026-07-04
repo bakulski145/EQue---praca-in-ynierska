@@ -43,13 +43,14 @@ class _ScanScreenState extends State<ScanScreen> {
       builder: (BuildContext context) {
         return AlertDialog(
           title: const Text(
-            'Wprowadź token ręcznie',
+            'Wprowadź kod zapisu',
             style: TextStyle(fontWeight: FontWeight.bold),
           ),
           content: TextField(
             controller: _tokenController,
+            keyboardType: TextInputType.number,
             decoration: InputDecoration(
-              hintText: 'Wklej token...',
+              hintText: 'np. 4821',
               prefixIcon: const Icon(Icons.keyboard, color: Colors.grey),
               filled: true,
               fillColor: const Color(0xFFF0F2F5),
@@ -129,7 +130,7 @@ class _ScanScreenState extends State<ScanScreen> {
                     onPressed: _pokazOkienkoReczne,
                     icon: const Icon(Icons.keyboard, color: Color(0xFF1877F2)),
                     label: const Text(
-                      'Wpisz token ręcznie',
+                      'Wpisz kod zapisu',
                       style: TextStyle(
                         color: Color(0xFF1877F2),
                         fontWeight: FontWeight.bold,

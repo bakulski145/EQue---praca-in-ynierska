@@ -7,9 +7,25 @@ import uuid
 # SCHEMATY DLA TABLETU (KIOSKU)
 # ---------------------------------------------------------------------------
 
-class QRCodeResponse(BaseModel):
-    qr_token: str
-    short_code: str
+class KioskStatusResponse(BaseModel):
+    """Odpowiedź GET /kiosk/status — heartbeat + stan kolejki dla ekranu kiosku."""
+    tablet_id: int
+    is_active: bool = True                    # False = admin wyłączył tablet; kiosk ma to pokazać, ale NIE zapominać tokenu
+    location_id: Optional[int] = None
+    location_name: Optional[str] = None
+    queue_code: Optional[str] = None          # stała litera kolejki lokalizacji, np. "A" — TYLKO informacyjnie, nie da się nią dołączyć
+    current_ticket_code: Optional[str] = None # aktualnie obsługiwany bilet (SERVING), albo None
+    accepting_new_tickets: bool = True        # False = operator wstrzymał NOWE zapisy (obsługa trwa dalej)
+
+
+class SignupCodeResponse(BaseModel):
+    """
+    Odpowiedź GET /kiosk/signup-code — krótkotrwały (30s) kod zapisu, jedyny
+    sposób na faktyczne dołączenie do kolejki. Odświeżany cyklicznie przez
+    kiosk, żeby stała litera queue_code nie musiała nigdy służyć do zapisu
+    (zbyt łatwa do zapamiętania/przekazania dalej bez fizycznej obecności).
+    """
+    signup_code: str
     expires_in_seconds: int
 
 
@@ -18,8 +34,13 @@ class QRCodeResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 class JoinQueueRequest(BaseModel):
-    """Body POST /queue/join — dołączenie do kolejki przez zeskanowany QR token."""
-    qr_token: str                             # token z kodu QR (UUID, ważny ~45s w Redis)
+    """
+    Body POST /queue/join — dołączenie do kolejki przez wpisany (lub zeskanowany)
+    KOD ZAPISU: krótkotrwały, 4-cyfrowy kod wyświetlany na ekranie kiosku,
+    odświeżany co 30s. To NIE stała litera lokalizacji (queue_code) — ta służy
+    już tylko jako informacja na kiosku/w ticket_code, nie da się nią dołączyć.
+    """
+    signup_code: str
     customer_name: Optional[str] = None       # imię/nazwisko (opcjonalne)
     appointment_time: Optional[str] = None    # np. "09:15" dla wizyt z rejestracji
 
@@ -34,6 +55,19 @@ class JoinQueueResponse(BaseModel):
 class PatientCancelRequest(BaseModel):
     """Body POST /queue/cancel — pacjent samodzielnie anuluje swój bilet."""
     ticket_code: str
+
+class TicketStatusResponse(BaseModel):
+    """
+    Odpowiedź GET /queue/ticket/{ticket_code} — publiczny, bezstanowy odczyt
+    aktualnego stanu biletu. Aplikacja mobilna dociąga to przy każdym
+    (re)połączeniu WS, żeby nigdy nie utknąć na starym stanie, gdyby
+    jednorazowy event YOUR_TURN/QUEUE_UPDATE został przegapiony (np. gniazdo
+    padło w złym momencie).
+    """
+    ticket_code: str
+    status: str                       # WAITING | SERVING | COMPLETED | CANCELLED
+    queue_position: int                # tylko dla WAITING, inaczej 0
+    estimated_wait_time_minutes: int   # tylko dla WAITING, inaczej 0
 
 
 # ---------------------------------------------------------------------------
@@ -84,6 +118,7 @@ class TabletResponse(BaseModel):
     is_active: bool
     last_seen_at: Optional[str] = None   # ISO-8601 string (frontend przelicza na online/offline)
     online: bool = False                  # liczone po stronie serwera: now - last_seen_at < 45s
+    pairing_token: Optional[str] = None   # token wpisywany w aplikacji mobilnej (Konfiguracja kiosku)
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -125,6 +160,8 @@ class LocationResponse(BaseModel):
     description: Optional[str] = None
     category: str
     is_active: bool
+    queue_code: str                            # stała litera kolejki, np. "A"
+    accepting_new_tickets: bool = True          # False = operator wstrzymał nowe zapisy (Kolejka na żywo)
     tablet: Optional[TabletInLocation] = None  # przypisany tablet lub null
     user_ids: list[uuid.UUID] = []             # przypisani operatorzy
 

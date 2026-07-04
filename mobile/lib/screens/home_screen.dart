@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../kiosk_prefs.dart';
 import 'scan_screen.dart';
 import 'map_screen.dart';
 import 'kiosk_login_screen.dart';
+import 'kiosk_qr_screen.dart';
 import 'queue_status_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -14,10 +16,32 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   String? _zapisanyBilet;
+  // Dopóki nie sprawdzimy, czy ten tablet jest zapamiętanym kioskiem, nie
+  // pokazujemy normalnego ekranu głównego — inaczej mignąłby na ułamek
+  // sekundy przed przekierowaniem do trybu kiosku.
+  bool _sprawdzanieKiosku = true;
 
   @override
   void initState() {
     super.initState();
+    _sprawdzTrybKiosku();
+  }
+
+  Future<void> _sprawdzTrybKiosku() async {
+    final prefs = await SharedPreferences.getInstance();
+    final zapisanyToken = prefs.getString(kKioskPairingTokenKey);
+    if (!mounted) return;
+
+    if (zapisanyToken != null && zapisanyToken.isNotEmpty) {
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (context) => KioskQrScreen(adminToken: zapisanyToken)),
+      );
+      return;
+    }
+
+    setState(() {
+      _sprawdzanieKiosku = false;
+    });
     _sprawdzAktywnyBilet();
   }
 
@@ -31,6 +55,12 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (_sprawdzanieKiosku) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
     return Scaffold(
       appBar: AppBar(
         title: const Text(
@@ -112,8 +142,9 @@ class _HomeScreenState extends State<HomeScreen> {
                       await Navigator.push(
                         context,
                         MaterialPageRoute(
-                          // Przekazujemy zapisany bilet (używamy go też jako tokena, skoro bilet już istnieje)
-                          builder: (context) => QueueStatusScreen(scannedToken: _zapisanyBilet!),
+                          // resumeExisting: dociągamy stan istniejącego biletu przez REST,
+                          // NIE dołączamy do kolejki drugi raz (to utworzyłoby duplikat).
+                          builder: (context) => QueueStatusScreen(scannedToken: _zapisanyBilet!, resumeExisting: true),
                         ),
                       );
                       // Po powrocie odświeżamy stan, na wypadek gdyby pacjent zrezygnował z kolejki

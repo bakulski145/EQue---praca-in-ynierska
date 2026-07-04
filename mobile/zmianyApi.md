@@ -14,32 +14,46 @@ Wszystkie dostępne endpointy REST oraz połączenia WebSocket do integracji apl
 
 ## 2. APLIKACJA MOBILNA I KIOSK (FLUTTER) - PRZEPŁYW (FLOW)
 
-### KROK 1: Generowanie kodu QR i PINu (Kiosk/Tablet)
-Tablet musi cyklicznie odświeżać kod QR, odpytując ten endpoint (co działa również jako jego "Heartbeat" podtrzymujący status Online). Serwer generuje długi UUID (do kodu QR) oraz krótki 4-znakowy PIN (do ręcznego wpisania) i zapisuje je w pamięci Redis.
-* **GET** `/api/v1/kiosk/qr?tablet_token=<pairing_token>`
+Tablet jest parowany raz, ręcznie: admin tworzy tablet w panelu webowym (zakładka
+Tablety), co generuje stały `pairing_token` — widoczny w panelu i wpisywany
+przez instalatora w aplikacji mobilnej, w zakładce "Konfiguracja kiosku". Od
+tego momentu kiosk działa bez dalszej interwencji. Każda lokalizacja ma stałą
+literę kodu kolejki (`queue_code`, np. "A"), nadawaną automatycznie przy
+tworzeniu lokalizacji — to jest kod, który klienci wpisują (lub skanują z
+ekranu kiosku) w aplikacji mobilnej, żeby dołączyć do tej konkretnej kolejki.
+
+### KROK 1: Status kiosku i heartbeat (Kiosk/Tablet)
+Tablet cyklicznie (co ~20s) odpytuje ten endpoint — działa jako heartbeat
+(podtrzymuje status Online) i zwraca stałą literę kolejki lokalizacji oraz kod
+aktualnie obsługiwanego biletu, do wyświetlenia na ekranie kiosku.
+* **GET** `/api/v1/kiosk/status?tablet_token=<pairing_token>`
 * **Auth:** Brak JWT. Autoryzacja przez query param `tablet_token` (zgodny z bazą).
 * **Response (200 OK):**
   ```json
   {
-    "qr_token": "8f3a-uuid-d41a",
-    "short_code": "K7X2",
-    "expires_in_seconds": 45
+    "tablet_id": 3,
+    "location_id": 1,
+    "location_name": "Rejestracja Ogólna",
+    "queue_code": "A",
+    "current_ticket_code": "A02"
   }
   ```
+  *(Jeśli tablet nie ma jeszcze przypisanej lokalizacji, `location_id`, `location_name`,
+  `queue_code` i `current_ticket_code` są `null` — kiosk pokazuje ekran oczekiwania).*
 
 ### KROK 2: Dołączenie do kolejki (Telefon pacjenta)
-Pacjent skanuje kod QR lub wpisuje z palca 4-znakowy PIN, a aplikacja mobilna wysyła ten ciąg znaków do serwera.
+Pacjent wpisuje literę kodu kolejki wyświetloną na ekranie kiosku (np. "A") —
+ręcznie albo skanując wyświetlony obok kod QR, który koduje tę samą literę.
 * **POST** `/api/v1/queue/join`
 * **Auth:** Brak (Endpoint publiczny)
 * **Body:**
   ```json
   {
-    "qr_token": "K7X2", 
+    "queue_code": "A",
     "customer_name": "Jan Kowalski", 
     "appointment_time": null
   }
   ```
-  *(Uwaga: W pole `qr_token` aplikacja mobilna może wstawić zarówno długi zeskanowany UUID, jak i 4-znakowy `short_code` przepisany z ekranu. Serwer obsłuży oba przypadki).*
 * **Response (200 OK):**
   ```json
   {
@@ -50,6 +64,7 @@ Pacjent skanuje kod QR lub wpisuje z palca 4-znakowy PIN, a aplikacja mobilna wy
     "estimated_wait_time_minutes": 12
   }
   ```
+  *(`ticket_code` = `queue_code` lokalizacji + kolejny numer w danym dniu, np. "A01", "A02"... — numeracja resetuje się codziennie per lokalizacja).*
 
 ### KROK 3: WebSocket Pacjenta (Telefon)
 Aplikacja mobilna po dołączeniu łączy się z dedykowanym gniazdem do nasłuchu.
@@ -137,6 +152,9 @@ Pełny CRUD. Wszystkie mutacje powodują emisję zdarzeń na WebSocket (topik `"
 
 **Lokalizacje / Okienka (`/api/v1/admin/locations`):**
 * `GET /`, `POST /`, `PUT /{id}`, `DELETE /{id}`, `POST /{id}/activate`, `POST /{id}/deactivate`
+* `POST /` nadaje automatycznie `queue_code` (pierwsza wolna litera A-Z) — nie da się go ustawić ręcznie ani zmienić.
 
 **Tablety / Kioski (`/api/v1/admin/tablets`):**
 * `GET /`, `POST /`, `PUT /{id}`, `DELETE /{id}`, `POST /{id}/activate`, `POST /{id}/deactivate`
+* `POST /` generuje automatycznie `pairing_token` (zwracany w odpowiedzi) — panel webowy (zakładka Tablety)
+  wyświetla go do przepisania w aplikacji mobilnej, w zakładce "Konfiguracja kiosku".

@@ -31,6 +31,7 @@ class ApiConfig {
   // 4. Gotowe endpointy:
   static String get loginUrl => '$baseUrl/api/v1/auth/login';
   static String get joinQueueUrl => '$baseUrl/api/v1/queue/join';
-  static String get kioskQrUrl => '$baseUrl/api/v1/kiosk/qr';
+  static String get kioskStatusUrl => '$baseUrl/api/v1/kiosk/status';
+  static String get kioskSignupCodeUrl => '$baseUrl/api/v1/kiosk/signup-code';
   static String get cancelQueueUrl => '$baseUrl/api/v1/queue/cancel';
 }

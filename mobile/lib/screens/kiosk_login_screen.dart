@@ -1,8 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../kiosk_prefs.dart';
 import 'kiosk_qr_screen.dart';
 
 class KioskLoginScreen extends StatefulWidget {
-  const KioskLoginScreen({super.key});
+  // Komunikat pokazywany od razu po wejściu — np. gdy KioskQrScreen odesłał
+  // tu z powrotem z powodu nieprawidłowego/skonfliktowanego tokenu.
+  final String? initialError;
+
+  const KioskLoginScreen({super.key, this.initialError});
 
   @override
   State<KioskLoginScreen> createState() => _KioskLoginScreenState();
@@ -13,7 +19,13 @@ class _KioskLoginScreenState extends State<KioskLoginScreen> {
   final _tokenController = TextEditingController();
   String? _errorMessage;
 
-  void _przejdzDoKiosku() {
+  @override
+  void initState() {
+    super.initState();
+    _errorMessage = widget.initialError;
+  }
+
+  Future<void> _przejdzDoKiosku() async {
     FocusScope.of(context).unfocus(); // Ukrywamy klawiaturę
     final String wpisanyToken = _tokenController.text.trim();
 
@@ -24,8 +36,16 @@ class _KioskLoginScreenState extends State<KioskLoginScreen> {
       return;
     }
 
+    // Zapamiętujemy token lokalnie — od tej pory tablet sam wraca do trybu
+    // kiosku po odświeżeniu/restarcie, bez potrzeby ponownego wpisywania
+    // (patrz HomeScreen). Jeśli token okaże się nieprawidłowy, KioskQrScreen
+    // go wyczyści przy pierwszym 401 z serwera.
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(kKioskPairingTokenKey, wpisanyToken);
+
     // NIE ROBIMY ŻADNEGO ZAPYTANIA HTTP DO /auth/login!
     // Od razu otwieramy KioskQrScreen i przekazujemy mu token parowania:
+    if (!mounted) return;
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(
