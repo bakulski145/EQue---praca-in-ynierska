@@ -5,7 +5,9 @@ class ApiConfig {
   // 1. WPISZ TUTAJ LOKALNE IP SWOJEGO KOMPUTERA (dla fizycznego telefonu z Wi-Fi)
   // Aby je poznać, wpisz w terminalu Windows: ipconfig (szukaj "IPv4 Address")
   // Na Macu/Linuxie wpisz: ifconfig
-  static const String _localLanIp = '192.168.101.2'; // <-- ZMIEŃ NA SWOJE IP
+  // Jeśli testujesz na fizycznym telefonie z Androidem, ustaw poniższą stałą
+  // i zwróć ją zamiast '10.0.2.2' w metodzie _host.
+  static const String localLanIp = '192.168.101.2'; // <-- ZMIEŃ NA SWOJE IP
 
   // 2. Automatyczne wykrywanie właściwego hosta:
   static String get _host {
@@ -13,9 +15,9 @@ class ApiConfig {
       // Jeśli uruchamiasz w przeglądarce (Chrome/Edge)
       return 'localhost';
     } else if (Platform.isAndroid) {
-      // Poniżej możesz zmienić na _localLanIp, jeśli testujesz na fizycznym telefonie z Androidem!
+      // Poniżej możesz zmienić na localLanIp, jeśli testujesz na fizycznym telefonie z Androidem!
       // '10.0.2.2' zostaw dla wirtualnego emulatora na komputerze:
-      return '10.0.2.2'; 
+      return '10.0.2.2';
     } else {
       // Windows Desktop, iOS Simulator, macOS
       return 'localhost';
