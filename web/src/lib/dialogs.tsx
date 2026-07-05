@@ -1,40 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
-
-type Tone = 'default' | 'danger';
-
-interface DialogOptions {
-  title?: string;
-  tone?: Tone;
-  confirmLabel?: string;
-  cancelLabel?: string;
-}
-
-interface DialogRequest extends DialogOptions {
-  kind: 'confirm' | 'alert';
-  message: string;
-  resolve: (value: boolean) => void;
-}
-
-let dispatch: ((req: DialogRequest) => void) | null = null;
-
-function request(kind: DialogRequest['kind'], message: string, opts: DialogOptions): Promise<boolean> {
-  return new Promise(resolve => {
-    const req: DialogRequest = { kind, message, resolve, ...opts };
-    if (dispatch) dispatch(req);
-    else resolve(kind === 'alert' ? true : window.confirm(message)); // siatka bezpieczeństwa gdyby <DialogHost/> nie był zamontowany
-  });
-}
-
-/** Zastępuje window.confirm — rozwiązuje się do true/false zależnie od wyboru użytkownika. */
-export function confirmDialog(message: string, opts: DialogOptions = {}): Promise<boolean> {
-  return request('confirm', message, opts);
-}
-
-/** Zastępuje window.alert — rozwiązuje się po kliknięciu OK. */
-export function alertDialog(message: string, opts: DialogOptions = {}): Promise<void> {
-  return request('alert', message, opts).then(() => undefined);
-}
+import { setDialogDispatcher, type DialogRequest } from './dialog-actions';
 
 /* ── ikony ─────────────────────────────────────────────── */
 
@@ -80,12 +46,12 @@ export function DialogHost() {
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    dispatch = (req) => {
+    setDialogDispatcher((req: DialogRequest) => {
       if (closeTimer.current) clearTimeout(closeTimer.current);
       setPending(req);
       requestAnimationFrame(() => setVisible(true));
-    };
-    return () => { dispatch = null; };
+    });
+    return () => { setDialogDispatcher(null); };
   }, []);
 
   const settle = useCallback((value: boolean) => {

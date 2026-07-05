@@ -3,7 +3,7 @@ import { api, ApiError } from '../lib/api';
 import { ws } from '../lib/ws';
 import { sortByName } from '../lib/sort';
 import type { TabletResponse, LocationResponse, RefreshHandle } from '../lib/apiTypes';
-import { confirmDialog, alertDialog } from '../lib/dialogs';
+import { confirmDialog, alertDialog } from '../lib/dialog-actions';
 import Select from './ui/Select';
 
 function formatLastSeen(lastSeenAt: string | null): string {

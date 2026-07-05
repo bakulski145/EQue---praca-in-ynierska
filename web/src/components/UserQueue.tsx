@@ -4,7 +4,7 @@ import { ws, type WsMessage } from '../lib/ws';
 import { sortByName } from '../lib/sort';
 import type { LocationResponse, QueueResponse, RefreshHandle } from '../lib/apiTypes';
 import { recordResolved, getActivity } from '../lib/ticketActivity';
-import { alertDialog } from '../lib/dialogs';
+import { alertDialog } from '../lib/dialog-actions';
 import Select from './ui/Select';
 
 function formatTime(iso: string) {

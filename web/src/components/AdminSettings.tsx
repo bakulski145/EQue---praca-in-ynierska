@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { api, ApiError } from '../lib/api';
-import { alertDialog } from '../lib/dialogs';
+import { alertDialog } from '../lib/dialog-actions';
 
 type Theme = 'light' | 'dark';
 
