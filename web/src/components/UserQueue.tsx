@@ -15,7 +15,6 @@ function minutesSince(iso: string): number {
   return Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
 }
 
-/* ── icons ─────────────────────────────────────────────── */
 
 function ClockIcon() {
   return (
@@ -50,7 +49,6 @@ function EmptyIcon() {
   );
 }
 
-/* ── sub-components ───────────────────────────────────── */
 
 function StatusPill({ tone, children }: { tone: 'brand' | 'amber' | 'success' | 'danger'; children: React.ReactNode }) {
   const map = {
@@ -83,14 +81,13 @@ function EmptyState({ text, hint }: { text: string; hint?: string }) {
   );
 }
 
-/* ── main component ───────────────────────────────────── */
 
 const UserQueue = forwardRef<RefreshHandle, { userName: string; locationIds: number[] }>(function UserQueue({ locationIds }, ref) {
   const [allLocations, setAllLocations] = useState<LocationResponse[]>([]);
   const [selectedLocationId, setSelectedLocationId] = useState<number | ''>('');
   const [queue, setQueue] = useState<QueueResponse | null>(null);
   const [tab, setTab] = useState<'oczekujacy' | 'zakonczone'>('oczekujacy');
-  const [, bumpActivity] = useState(0); // re-render po recordResolved(), żeby zakładka "Zakończone" od razu pokazała wpis
+  const [, bumpActivity] = useState(0);
 
   const fetchLocations = useCallback(async () => {
     try {
@@ -131,8 +128,6 @@ const UserQueue = forwardRef<RefreshHandle, { userName: string; locationIds: num
     return () => clearTimeout(initial);
   }, [selectedLocationId, refetchQueue]);
 
-  /* Nowe zgłoszenie / wezwanie / zakończenie w wybranej lokalizacji — odśwież
-     od razu zamiast czekać na kolejny poll (ticket.*). */
   useEffect(() => {
     if (selectedLocationId === '') return;
     const handler = (msg: WsMessage) => {
@@ -144,8 +139,6 @@ const UserQueue = forwardRef<RefreshHandle, { userName: string; locationIds: num
     return () => { offCreated(); offUpdated(); };
   }, [selectedLocationId, refetchQueue]);
 
-  /* Zmiana accepting_new_tickets (np. przez innego operatora albo to samo
-     urządzenie w innej karcie) — trzymaj lokalny stan lokalizacji na żywo. */
   useEffect(() => {
     const offLocUpdated = ws.on('location.updated', msg => {
       const location = msg.location as LocationResponse;
@@ -199,8 +192,6 @@ const UserQueue = forwardRef<RefreshHandle, { userName: string; locationIds: num
     ? allLocations.find(l => l.id === selectedLocationId) ?? null
     : null;
 
-  /* Wstrzymanie NOWYCH zapisów przez operatora — inne niż dezaktywacja tabletu
-     przez admina (zakładka Tablety): obsługa już czekających trwa dalej. */
   const toggleAcceptingTickets = async () => {
     if (!selectedLocation) return;
     const action = selectedLocation.accepting_new_tickets ? 'pause-queue' : 'resume-queue';
@@ -216,7 +207,6 @@ const UserQueue = forwardRef<RefreshHandle, { userName: string; locationIds: num
     ? getActivity().filter(a => a.locationId === selectedLocationId)
     : [];
 
-  /* ── styles ─────────────────────────────────────────── */
 
   const btnDanger: React.CSSProperties = {
     display: 'flex', alignItems: 'center', gap: 8,
@@ -235,7 +225,7 @@ const UserQueue = forwardRef<RefreshHandle, { userName: string; locationIds: num
 
   return (
     <div>
-      {/* location picker */}
+      {}
       <div style={{ marginBottom: 20, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <span style={{ display: 'flex', color: 'var(--text-faint)' }}>
@@ -289,7 +279,7 @@ const UserQueue = forwardRef<RefreshHandle, { userName: string; locationIds: num
         </div>
       ) : queue && (
         <>
-          {/* currently serving */}
+          {}
           <div style={{
             background: 'var(--brand-subtle)', border: '1px solid var(--brand-border)',
             borderRadius: 'var(--radius-lg)', padding: '20px 24px', marginBottom: 20,
@@ -340,7 +330,7 @@ const UserQueue = forwardRef<RefreshHandle, { userName: string; locationIds: num
             )}
           </div>
 
-          {/* tabs */}
+          {}
           <div style={{ display: 'flex', gap: 4, borderBottom: '1px solid var(--border-subtle)', marginBottom: 0 }}>
             {(['oczekujacy', 'zakonczone'] as const).map(t => {
               const active = tab === t;
@@ -375,7 +365,7 @@ const UserQueue = forwardRef<RefreshHandle, { userName: string; locationIds: num
             })}
           </div>
 
-          {/* list card */}
+          {}
           <div style={{ background: 'var(--surface-card)', border: '1px solid var(--border-subtle)', borderRadius: '0 0 var(--radius-lg) var(--radius-lg)', boxShadow: 'var(--shadow-sm)', overflow: 'hidden' }}>
             {tab === 'oczekujacy' ? (
               queue.waiting.length === 0 ? (

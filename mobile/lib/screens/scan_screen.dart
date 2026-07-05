@@ -12,10 +12,9 @@ class ScanScreen extends StatefulWidget {
 }
 
 class _ScanScreenState extends State<ScanScreen> {
-  // Zmieniłem nazwę kontrolera z _kodController na _tokenController dla spójności
   final TextEditingController _tokenController = TextEditingController();
   
-  bool _isNavigating = false; 
+  bool _isNavigating = false;
 
   @override
   void dispose() {
@@ -33,7 +32,6 @@ class _ScanScreenState extends State<ScanScreen> {
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(
-        // TUTAJ ZMIANA: Przekazujemy token bez zmiany wielkości liter
         builder: (context) => QueueStatusScreen(scannedToken: zeskanowanyToken),
       ),
     );
@@ -97,7 +95,6 @@ class _ScanScreenState extends State<ScanScreen> {
                       final List<Barcode> barcodes = capture.barcodes;
                       for (final barcode in barcodes) {
                         if (barcode.rawValue != null) {
-                          // Od razu przekazujemy surowy token z kodu QR
                           _przejdzDoKolejki(barcode.rawValue!);
                           break;
                         }

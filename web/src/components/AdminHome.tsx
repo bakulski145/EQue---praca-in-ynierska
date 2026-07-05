@@ -4,7 +4,6 @@ import { ws } from '../lib/ws';
 import { sortByName } from '../lib/sort';
 import type { TabletResponse, UserResponse, LocationResponse, RefreshHandle } from '../lib/apiTypes';
 
-/* ── sub-components ───────────────────────────────────── */
 
 function StatCard({ label, value, unit, icon, accent = 'var(--text-brand)' }: {
   label: string; value: string | number; unit?: string; icon: React.ReactNode; accent?: string;
@@ -105,7 +104,6 @@ const ICON = {
   ),
 };
 
-/* ── main component ───────────────────────────────────── */
 
 const AdminHome = forwardRef<RefreshHandle, { userName?: string }>(function AdminHome({ userName }, ref) {
   const [devices, setDevices] = useState<TabletResponse[]>([]);
@@ -135,7 +133,6 @@ const AdminHome = forwardRef<RefreshHandle, { userName?: string }>(function Admi
     return () => clearTimeout(initial);
   }, [refetch]);
 
-  /* Live status tabletów przez WebSocket (device.status) — patrz AdminDashboard.tsx. */
   useEffect(() => {
     const offStatus = ws.on('device.status', msg => {
       const tabletId = msg.tablet_id as number;
@@ -176,7 +173,7 @@ const AdminHome = forwardRef<RefreshHandle, { userName?: string }>(function Admi
         </p>
       )}
 
-      {/* KPI row */}
+      {}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
         <StatCard label="Aktywne tablety" value={activeDevices.length} unit={`/ ${devices.length}`} icon={ICON.tablet} />
         <StatCard label="Aktywni użytkownicy" value={activeUsers.length} unit={`/ ${users.length}`} icon={ICON.users} />
@@ -185,7 +182,7 @@ const AdminHome = forwardRef<RefreshHandle, { userName?: string }>(function Admi
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: 16, alignItems: 'start' }}>
-        {/* Locations overview */}
+        {}
         <CardShell title="Lokalizacje — przegląd" subtitle="Stan tabletów i obsady w każdej lokalizacji">
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
             {locations.length === 0 && (
@@ -222,7 +219,7 @@ const AdminHome = forwardRef<RefreshHandle, { userName?: string }>(function Admi
           </div>
         </CardShell>
 
-        {/* Needs attention */}
+        {}
         <CardShell title="Wymaga uwagi" subtitle="Braki w konfiguracji systemu">
           {issues.length === 0 ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 4px' }}>

@@ -1,9 +1,6 @@
 import 'package:flutter/material.dart';
 import '../theme/eque_theme.dart';
 
-/// eQue Card — biała powierzchnia z cienką obwódką i miękkim cieniem.
-/// Odpowiednik `components/core/Card.jsx` z design systemu: obwódka robi
-/// większość roboty przy oddzielaniu treści, cień to lekki akcent.
 class EQueCard extends StatelessWidget {
   final Widget child;
   final EdgeInsetsGeometry padding;

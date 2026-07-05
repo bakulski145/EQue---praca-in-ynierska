@@ -1,7 +1,6 @@
 @import "tailwindcss";
 
 :root {
-  /* Brand: teal */
   --teal-50:  #ECFDFA;
   --teal-100: #CFF8F1;
   --teal-200: #9CEEE2;
@@ -10,7 +9,6 @@
   --teal-600: #0E9B92;
   --teal-700: #0C7B74;
 
-  /* Neutral: slate */
   --slate-0:   #FFFFFF;
   --slate-50:  #F6F8F9;
   --slate-100: #EDF1F3;
@@ -23,34 +21,29 @@
   --slate-800: #232B30;
   --slate-900: #151B1F;
 
-  /* Amber */
   --amber-50:  #FFF8EB;
   --amber-100: #FDEDC8;
   --amber-500: #F2A60C;
   --amber-600: #D98906;
   --amber-700: #A9650A;
 
-  /* Green */
   --green-50:  #ECFDF3;
   --green-100: #D1FADF;
   --green-500: #16A34A;
   --green-600: #128A3E;
   --green-700: #0F6E33;
 
-  /* Blue */
   --blue-50:  #EFF6FF;
   --blue-100: #DBEAFE;
   --blue-500: #3B82F6;
   --blue-600: #2563EB;
 
-  /* Red */
   --red-50:  #FEF2F2;
   --red-100: #FEE2E2;
   --red-500: #E5484D;
   --red-600: #CE363B;
   --red-700: #A52A2E;
 
-  /* Semantic */
   --brand:          var(--teal-500);
   --brand-hover:    var(--teal-600);
   --brand-active:   var(--teal-700);
@@ -73,11 +66,9 @@
   --border-default: var(--slate-300);
   --focus-ring:     var(--teal-400);
 
-  /* Fonts */
   --font-display: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
   --font-ui:      "Manrope", ui-sans-serif, system-ui, sans-serif;
 
-  /* Radii */
   --radius-xs: 4px;
   --radius-sm: 6px;
   --radius-md: 10px;
@@ -85,11 +76,9 @@
   --radius-xl: 20px;
   --radius-pill: 999px;
 
-  /* Shadows */
   --shadow-sm: 0 1px 2px rgba(21,27,31,0.06), 0 1px 3px rgba(21,27,31,0.08);
   --shadow-md: 0 2px 4px rgba(21,27,31,0.05), 0 6px 16px rgba(21,27,31,0.08);
 
-  /* Motion */
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
   --dur-fast: 120ms;
   --dur-base: 200ms;
@@ -106,27 +95,18 @@ body {
   to { transform: rotate(360deg); }
 }
 
-/* staggered reveal for custom dropdown options */
 @keyframes eque-option-in {
   from { opacity: 0; transform: translateY(-4px); }
   to   { opacity: 1; transform: translateY(0); }
 }
 
-/* subtle bounce for dialog/select trigger feedback */
 @keyframes eque-pop {
   0%   { transform: scale(1); }
   40%  { transform: scale(0.96); }
   100% { transform: scale(1); }
 }
 
-/* ============================================================
-   Dark theme — overrides the raw color ladder + the few tokens
-   that aren't derived from it. Every component reads colors
-   through these custom properties, so this block is the whole
-   theme switch: no component-level dark-mode branching needed.
-   ============================================================ */
 :root[data-theme="dark"] {
-  /* Neutral: slate — inverted ladder (lightness reversed) */
   --slate-0:   #0B0F12;
   --slate-50:  #0F1417;
   --slate-100: #1B232A;
@@ -139,39 +119,32 @@ body {
   --slate-800: #E2E7E9;
   --slate-900: #F4F6F7;
 
-  /* Teal — keep brand fills vivid, soften tints, brighten text use */
   --teal-50:  rgba(37, 199, 183, 0.12);
   --teal-100: rgba(37, 199, 183, 0.20);
   --teal-200: rgba(37, 199, 183, 0.34);
   --teal-600: #3FDCC9;
   --teal-700: #5EE6D6;
 
-  /* Amber */
   --amber-50:  rgba(242, 166, 12, 0.12);
   --amber-100: rgba(242, 166, 12, 0.22);
   --amber-600: #F5B83D;
   --amber-700: #FBCB6E;
 
-  /* Green */
   --green-50:  rgba(22, 163, 74, 0.14);
   --green-100: rgba(22, 163, 74, 0.24);
   --green-600: #34D399;
   --green-700: #6EE7B7;
 
-  /* Red */
   --red-50:  rgba(229, 72, 77, 0.14);
   --red-100: rgba(229, 72, 77, 0.24);
   --red-600: #F47074;
   --red-700: #FF9DA0;
 
-  /* Blue */
   --blue-100: rgba(59, 130, 246, 0.22);
   --blue-600: #7AAFFF;
 
-  /* Not derived from the slate ladder — needs its own value */
   --surface-card: #171F24;
 
-  /* Shadows read against a dark backdrop, not a light one */
   --shadow-sm: 0 1px 2px rgba(0,0,0,0.4), 0 1px 3px rgba(0,0,0,0.3);
   --shadow-md: 0 2px 6px rgba(0,0,0,0.35), 0 10px 28px rgba(0,0,0,0.45);
 

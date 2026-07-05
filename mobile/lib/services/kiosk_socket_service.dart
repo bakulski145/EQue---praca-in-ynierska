@@ -2,13 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
-/// Długo żyjące połączenie WebSocket kiosku (`/api/v1/ws?tablet_token=...`).
-/// Serwer autoryzuje po `pairing_token` i automatycznie subskrybuje ten tablet
-/// (`tablet:{id}`) oraz jego lokalizację (`location:{id}`, jeśli przypisana) —
-/// klient nie musi nic wysyłać poza okresowym pingiem.
-///
-/// Auto-reconnect z rosnącym opóźnieniem (jak `web/src/lib/ws.ts`), żeby kiosk
-/// sam się pozbierał po zerwaniu sieci bez interwencji.
 class KioskSocketService {
   static const _pingInterval = Duration(seconds: 20);
   static const _reconnectBaseMs = 1000;
@@ -33,11 +26,6 @@ class KioskSocketService {
     _open();
   }
 
-  /// Aktualizuje subskrypcję tego gniazda po stronie serwera — potrzebne, gdy
-  /// tablet dostaje (lub traci) przypisaną lokalizację już PO nawiązaniu
-  /// połączenia: serwer subskrybuje tylko raz przy connect, więc bez tego
-  /// zdarzenia `location:{id}` (np. wezwanie/zakończenie biletu) nigdy by nie
-  /// dotarły do już otwartego gniazda.
   void resubscribe(List<String> topics) {
     _channel?.sink.add(jsonEncode({'type': 'subscribe', 'topics': topics}));
   }
@@ -77,7 +65,6 @@ class KioskSocketService {
           if (data['type'] == 'pong' || data['type'] == 'subscribed') return;
           onEvent(data);
         } catch (_) {
-          // niepoprawny JSON — ignorujemy pojedynczą wiadomość
         }
       },
       onError: (_) => _scheduleReconnect(),

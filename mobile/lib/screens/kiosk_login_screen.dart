@@ -7,8 +7,6 @@ import '../widgets/eque_card.dart';
 import 'kiosk_qr_screen.dart';
 
 class KioskLoginScreen extends StatefulWidget {
-  // Komunikat pokazywany od razu po wejściu — np. gdy KioskQrScreen odesłał
-  // tu z powrotem z powodu nieprawidłowego/skonfliktowanego tokenu.
   final String? initialError;
 
   const KioskLoginScreen({super.key, this.initialError});
@@ -18,7 +16,6 @@ class KioskLoginScreen extends StatefulWidget {
 }
 
 class _KioskLoginScreenState extends State<KioskLoginScreen> {
-  // Zamiast loginu i hasła mamy tylko JEDNO pole na token tabletu
   final _tokenController = TextEditingController();
   String? _errorMessage;
 
@@ -29,7 +26,7 @@ class _KioskLoginScreenState extends State<KioskLoginScreen> {
   }
 
   Future<void> _przejdzDoKiosku() async {
-    FocusScope.of(context).unfocus(); // Ukrywamy klawiaturę
+    FocusScope.of(context).unfocus();
     final String wpisanyToken = _tokenController.text.trim();
 
     if (wpisanyToken.isEmpty) {
@@ -39,15 +36,9 @@ class _KioskLoginScreenState extends State<KioskLoginScreen> {
       return;
     }
 
-    // Zapamiętujemy token lokalnie — od tej pory tablet sam wraca do trybu
-    // kiosku po odświeżeniu/restarcie, bez potrzeby ponownego wpisywania
-    // (patrz HomeScreen). Jeśli token okaże się nieprawidłowy, KioskQrScreen
-    // go wyczyści przy pierwszym 401 z serwera.
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(kKioskPairingTokenKey, wpisanyToken);
 
-    // NIE ROBIMY ŻADNEGO ZAPYTANIA HTTP DO /auth/login!
-    // Od razu otwieramy KioskQrScreen i przekazujemy mu token parowania:
     if (!mounted) return;
     Navigator.pushReplacement(
       context,
@@ -110,7 +101,6 @@ class _KioskLoginScreenState extends State<KioskLoginScreen> {
                     ),
                     const SizedBox(height: 16),
                   ],
-                  // Jedno pole tekstowe na Pairing Token
                   TextField(
                     controller: _tokenController,
                     decoration: const InputDecoration(

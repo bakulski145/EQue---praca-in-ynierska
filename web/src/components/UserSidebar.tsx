@@ -55,7 +55,7 @@ export default function UserSidebar({ activeTab, setActiveTab, userName, onLogou
       display: 'flex',
       flexDirection: 'column',
     }}>
-      {/* Logo */}
+      {}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '26px 22px 20px' }}>
         <img src="/logo-mark.svg" width="36" height="36" alt="" />
         <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 23, letterSpacing: '-0.01em', color: 'var(--text-strong)' }}>
@@ -63,7 +63,7 @@ export default function UserSidebar({ activeTab, setActiveTab, userName, onLogou
         </span>
       </div>
 
-      {/* Nav */}
+      {}
       <nav style={{ flex: 1, padding: '4px 14px', display: 'flex', flexDirection: 'column', gap: 2 }}>
         {NAV.map((item) => {
           const active = activeTab === item.key;
@@ -90,7 +90,7 @@ export default function UserSidebar({ activeTab, setActiveTab, userName, onLogou
         })}
       </nav>
 
-      {/* User + logout */}
+      {}
       <div style={{
         borderTop: '1px solid var(--border-subtle)',
         padding: '14px 16px',

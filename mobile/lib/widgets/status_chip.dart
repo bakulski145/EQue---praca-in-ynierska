@@ -18,8 +18,6 @@ const _statusStyles = {
   QueueStatus.paused: _StatusStyle(EQueColors.slate600, EQueColors.surfaceSunken, EQueColors.borderSubtle, 'Wstrzymano'),
 };
 
-/// eQue StatusChip — kanoniczny znacznik stanu kolejki (pigułka z kropką +
-/// polską etykietą). Stan "serving" domyślnie pulsuje ("na żywo").
 class StatusChip extends StatelessWidget {
   final QueueStatus status;
   final String? label;
@@ -77,7 +75,6 @@ class _StaticDot extends StatelessWidget {
   }
 }
 
-/// Kropka z rozchodzącym się "ping" — sygnalizuje stan "na żywo" (serving).
 class _PulsingDot extends StatefulWidget {
   final Color color;
   final double size;

@@ -36,12 +36,8 @@ class ConnectionManager:
     """
 
     def __init__(self):
-        # WebSocket → zestaw subskrybowanych topików
         self._connections: dict[WebSocket, set[str]] = {}
 
-    # ------------------------------------------------------------------
-    # Zarządzanie połączeniami
-    # ------------------------------------------------------------------
 
     async def connect(self, websocket: WebSocket) -> None:
         """Akceptuje połączenie i rejestruje gniazdo (bez topików na start)."""
@@ -54,9 +50,6 @@ class ConnectionManager:
         self._connections.pop(websocket, None)
         logger.info("WS disconnect: %d aktywnych połączeń", len(self._connections))
 
-    # ------------------------------------------------------------------
-    # Subskrypcje
-    # ------------------------------------------------------------------
 
     def subscribe(self, websocket: WebSocket, topics: list[str]) -> None:
         """
@@ -70,9 +63,6 @@ class ConnectionManager:
     def get_topics(self, websocket: WebSocket) -> set[str]:
         return self._connections.get(websocket, set())
 
-    # ------------------------------------------------------------------
-    # Broadcast
-    # ------------------------------------------------------------------
 
     async def broadcast_to_topic(self, topic: str, message: dict) -> None:
         """
@@ -87,11 +77,10 @@ class ConnectionManager:
         disconnected: list[WebSocket] = []
 
         for ws, subscribed in list(self._connections.items()):
-            if subscribed & target:  # przecięcie — czy gniazdo chce ten event
+            if subscribed & target:
                 try:
                     await ws.send_json(message)
                 except Exception:
-                    # Gniazdo padło — zaznacz do usunięcia
                     disconnected.append(ws)
 
         for ws in disconnected:
@@ -105,13 +94,8 @@ class ConnectionManager:
             self.disconnect(websocket)
 
 
-# Singleton — jedna instancja na cały proces
 manager = ConnectionManager()
 
-
-# ------------------------------------------------------------------
-# Redis pub/sub listener (background task)
-# ------------------------------------------------------------------
 
 async def redis_pubsub_listener(redis_client) -> None:
     """
@@ -155,10 +139,6 @@ async def redis_pubsub_listener(redis_client) -> None:
         await pubsub.aclose()
 
 
-# ------------------------------------------------------------------
-# Funkcja pomocnicza: publikowanie eventów z endpointów REST
-# ------------------------------------------------------------------
-
 async def publish_event(redis_client, topic: str, event_type: str, payload: dict) -> None:
     """
     Publikuje event na kanał Redis. Wywołuj z endpointów REST po każdej mutacji
@@ -179,6 +159,6 @@ async def publish_event(redis_client, topic: str, event_type: str, payload: dict
     message = {
         "topic": topic,
         "type": event_type,
-        **payload,        # payload wchodzi płasko do wiadomości (tak jak w API_SPEC)
+        **payload,
     }
     await redis_client.publish(REDIS_CHANNEL, json.dumps(message, default=str))

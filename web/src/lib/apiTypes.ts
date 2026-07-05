@@ -76,9 +76,6 @@ export interface QueueResponse {
   serving: TicketResponse | null;
 }
 
-/** Uchwyt wystawiany przez zakładki panelu przez useImperativeHandle — pozwala
- * przyciskowi odświeżania w App.tsx czekać na faktyczne zakończenie fetchu,
- * zamiast pokazywać spinner przez sztywny czas. */
 export interface RefreshHandle {
   refetch: () => Promise<void>;
 }

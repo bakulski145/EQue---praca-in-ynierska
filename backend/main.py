@@ -48,19 +48,17 @@ async def heartbeat_sweeper(app: FastAPI):
                 now = datetime.now(timezone.utc)
                 threshold = now - timedelta(seconds=45)
 
-                # Tablety
                 tablets = db.query(models.Tablet).filter(
                     models.Tablet.last_seen_at != None,
                     models.Tablet.last_seen_at < threshold
                 ).all()
-                
+
                 for t in tablets:
                     payload = {"tablet_id": t.id, "online": False}
                     await publish_event(app.state.redis, "admin", "device.status", payload)
                     if t.location_id:
                         await publish_event(app.state.redis, f"location:{t.location_id}", "device.status", payload)
-                
-                # Użytkownicy OPERATOR
+
                 users = db.query(models.User).filter(
                     models.User.role == "OPERATOR",
                     models.User.last_seen_at != None,
@@ -72,7 +70,7 @@ async def heartbeat_sweeper(app: FastAPI):
                     await publish_event(app.state.redis, "admin", "user.presence", payload)
                     for loc in u.locations:
                         await publish_event(app.state.redis, f"location:{loc.id}", "user.presence", payload)
-                        
+
             finally:
                 db.close()
         except asyncio.CancelledError:
@@ -84,7 +82,6 @@ async def heartbeat_sweeper(app: FastAPI):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Inicjalizuje Redis i uruchamia nasłuchiwacz pub/sub przy starcie aplikacji."""
-    # STARTUP
     app.state.redis = aioredis.from_url(REDIS_URL, decode_responses=True)
     app.state.pubsub_task = asyncio.create_task(
         redis_pubsub_listener(app.state.redis)
@@ -94,7 +91,6 @@ async def lifespan(app: FastAPI):
     )
     logger.info("Redis połączony: %s", REDIS_URL)
     yield
-    # SHUTDOWN
     app.state.pubsub_task.cancel()
     app.state.heartbeat_task.cancel()
     try:
@@ -114,17 +110,14 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], 
+    allow_origins=["*"],
     allow_credentials=False,
-    allow_methods=["*"], 
-    allow_headers=["*"], 
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 
-ONLINE_THRESHOLD_SECONDS = 45  # tablet jest "online" jeśli last_seen_at < 45s temu
+ONLINE_THRESHOLD_SECONDS = 45
 
 
 def _is_online(entity: models.Tablet | models.User) -> bool:
@@ -133,7 +126,6 @@ def _is_online(entity: models.Tablet | models.User) -> bool:
         return False
     now = datetime.now(timezone.utc)
     last = entity.last_seen_at
-    # Zapewnij timezone-aware
     if last.tzinfo is None:
         last = last.replace(tzinfo=timezone.utc)
     return (now - last).total_seconds() < ONLINE_THRESHOLD_SECONDS
@@ -154,7 +146,7 @@ def _tablet_to_response(tablet: models.Tablet) -> TabletResponse:
 def _location_to_response(loc: models.Location) -> LocationResponse:
     """Konwertuje Location na LocationResponse z zagnieżdżonym tabletem i user_ids."""
     tablet_info = None
-    if loc.tablets:          # relacja 1-to-1 przez UNIQUE; bierzemy pierwszy (jedyny)
+    if loc.tablets:
         t = loc.tablets[0]
         tablet_info = TabletInLocation(id=t.id, name=t.name, is_active=t.is_active)
     return LocationResponse(
@@ -170,7 +162,6 @@ def _location_to_response(loc: models.Location) -> LocationResponse:
     )
 
 
-# Alfabet bez znaków, które łatwo pomylić (0/O, 1/I/L) — używany do kodów biletów i tokenów parowania.
 _UNAMBIGUOUS_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
 
 
@@ -296,18 +287,10 @@ def _detach_tablet_from_location(location_id: int, exclude_tablet_id: int | None
     return None
 
 
-# ---------------------------------------------------------------------------
-# Root
-# ---------------------------------------------------------------------------
-
 @app.get("/", tags=["default"])
 async def root():
     return {"message": "Witaj w eQue API. Serwer działa poprawnie."}
 
-
-# ---------------------------------------------------------------------------
-# AUTH
-# ---------------------------------------------------------------------------
 
 @app.post("/api/v1/auth/login", response_model=TokenResponse, tags=["Auth"])
 async def login(login_data: LoginRequest, db: Session = Depends(get_db)):
@@ -318,7 +301,6 @@ async def login(login_data: LoginRequest, db: Session = Depends(get_db)):
     user = db.query(models.User).filter(models.User.username == login_data.username).first()
 
     if not user or not verify_password(login_data.password, user.password_hash):
-        # Jeden komunikat — nie zdradzamy, czy login czy hasło jest złe
         raise HTTPException(status_code=401, detail="Nieprawidłowy login lub hasło")
 
     if not user.is_active:
@@ -374,10 +356,6 @@ async def change_password(
     return {"message": "Hasło zostało zmienione."}
 
 
-# ---------------------------------------------------------------------------
-# KIOSK (tablet)
-# ---------------------------------------------------------------------------
-
 @app.get("/api/v1/kiosk/status", response_model=KioskStatusResponse, tags=["Tablet"])
 async def get_kiosk_status(
     tablet_token: str = Query(..., description="pairing_token z tabeli Tablet"),
@@ -393,16 +371,10 @@ async def get_kiosk_status(
     """
     tablet = _authenticate_kiosk(tablet_token, device_id, db)
 
-    # Heartbeat — aktualizuj last_seen_at, żeby sweeper nie oznaczył tabletu jako offline
-    # (nawet gdy tablet jest dezaktywowany — admin widzi wtedy, że urządzenie
-    # nadal żyje, tylko wyłączone).
     tablet.last_seen_at = func.now()
     db.commit()
 
     if not tablet.is_active:
-        # Tablet istnieje i token jest ważny, ale admin go wyłączył — kiosk ma
-        # to pokazać komunikatem, NIE zapominać tokenu (wraca samo po ponownym
-        # włączeniu, bez potrzeby przepisywania tokenu).
         return KioskStatusResponse(tablet_id=tablet.id, is_active=False)
 
     if not tablet.location_id:
@@ -472,10 +444,6 @@ async def get_kiosk_signup_code(
     return SignupCodeResponse(signup_code=code, expires_in_seconds=_SIGNUP_CODE_TTL_SECONDS)
 
 
-# ---------------------------------------------------------------------------
-# WEBSOCKET — /api/v1/ws?token=<jwt>
-# ---------------------------------------------------------------------------
-
 @app.websocket("/api/v1/ws")
 async def websocket_endpoint(
     websocket: WebSocket,
@@ -503,7 +471,6 @@ async def websocket_endpoint(
     """
     from database import SessionLocal
 
-    # ---- GAŁĄŹ TABLET: autoryzacja przez pairing_token, bez JWT ------------
     if tablet_token is not None:
         db = SessionLocal()
         try:
@@ -511,15 +478,9 @@ async def websocket_endpoint(
                 models.Tablet.pairing_token == tablet_token
             ).first()
             if not tablet:
-                # Token nieznany (zresetowany/tablet usunięty) — jedyny przypadek
-                # odrzucenia. Nieaktywny, ale znany tablet zostaje podłączony, żeby
-                # od razu dostał "device.updated" w chwili ponownego włączenia.
                 await websocket.close(code=4003)
                 return
 
-            # "Jeden token = jeden tablet": pierwsze urządzenie przejmuje token,
-            # kolejne z innym device_id dostaje odrębny kod zamknięcia (4009),
-            # żeby klient mógł to rozróżnić od zwykłego "token nieznany".
             if tablet.paired_device_id is None:
                 tablet.paired_device_id = device_id
                 db.commit()
@@ -595,7 +556,6 @@ async def websocket_endpoint(
             await _broadcast_tablet_status(False)
         return
 
-    # ---- GAŁĄŹ OPERATOR/ADMIN: autoryzacja przez JWT -----------------------
     if not token:
         await websocket.close(code=4001)
         return
@@ -616,7 +576,6 @@ async def websocket_endpoint(
         await websocket.close(code=4001)
         return
 
-    # Pobierz usera z bazy (sprawdź is_active)
     db = SessionLocal()
     try:
         user = db.query(models.User).filter(models.User.username == username).first()
@@ -662,7 +621,6 @@ async def websocket_endpoint(
         finally:
             db.close()
 
-    # 2. Akceptuj połączenie i zarejestruj w managerze
     await ws_manager.connect(websocket)
     await _touch_last_seen()
     await _broadcast_presence("online")
@@ -674,7 +632,6 @@ async def websocket_endpoint(
             msg_type = data.get("type")
 
             if msg_type == "subscribe":
-                # Klient deklaruje, które topiki chce obserwować
                 topics = data.get("topics", [])
                 ws_manager.subscribe(websocket, topics)
                 await ws_manager.send_personal(websocket, {
@@ -684,7 +641,6 @@ async def websocket_endpoint(
                 logger.debug("WS: '%s' zasubskrybował: %s", username, topics)
 
             elif msg_type == "ping":
-                # Heartbeat — przedłuża last_seen_at o kolejne ~45s okno online
                 await _touch_last_seen()
                 await ws_manager.send_personal(websocket, {"type": "pong"})
 
@@ -703,10 +659,6 @@ async def websocket_endpoint(
         await _broadcast_presence("offline")
 
 
-# ---------------------------------------------------------------------------
-# PATIENT (mobile) — kolejka
-# ---------------------------------------------------------------------------
-
 def _generate_ticket_code(location: models.Location, db: Session) -> str:
     """
     Generuje kod biletu = stała litera kolejki lokalizacji + kolejny numer w danym dniu,
@@ -720,8 +672,6 @@ def _generate_ticket_code(location: models.Location, db: Session) -> str:
 
     number = count_today + 1
     code = f"{location.queue_code}{number:02d}"
-    # Zabezpieczenie przed rzadkim wyścigiem (dwa jednoczesne dołączenia) — jeśli kod
-    # już istnieje dzisiaj dla tej lokalizacji, bierzemy kolejny wolny numer.
     while db.query(models.Ticket).filter(
         models.Ticket.location_id == location.id,
         models.Ticket.ticket_code == code,
@@ -791,9 +741,8 @@ async def join_queue(payload: JoinQueueRequest, request: Request, db: Session = 
         appointment_time=payload.appointment_time,
     )
     db.add(ticket)
-    db.flush()   # nadaj ID bez commitu, żeby móc policzyć pozycję
+    db.flush()
 
-    # Pozycja = ile biletów WAITING dla tej lokalizacji ma joined_at < now
     queue_position = db.query(models.Ticket).filter(
         models.Ticket.location_id == location_id,
         models.Ticket.status == "WAITING",
@@ -803,8 +752,6 @@ async def join_queue(payload: JoinQueueRequest, request: Request, db: Session = 
     db.commit()
     db.refresh(ticket)
 
-    # Powiadomienie panelu operatora/admina — dotąd żadne, operator dowiadywał się
-    # o nowym zgłoszeniu dopiero przy kolejnym pollu REST (do 10s opóźnienia).
     await publish_event(
         request.app.state.redis,
         topic=f"location:{location_id}",
@@ -886,7 +833,6 @@ async def patient_cancel_ticket(
     db.commit()
     db.refresh(ticket)
 
-    # Powiadomienie panelu operatora (WebSocket location topic)
     response = _ticket_to_response(ticket)
     await publish_event(
         request.app.state.redis,
@@ -895,15 +841,10 @@ async def patient_cancel_ticket(
         payload={"ticket": response.model_dump()},
     )
 
-    # Aktualizacja pozycji dla pozostałych WAITING pacjentów
     await _broadcast_queue_updates(request.app.state.redis, ticket.location_id, db)
 
     return {"message": "Ticket cancelled successfully"}
 
-
-# ---------------------------------------------------------------------------
-# Helper: rozsyłanie QUEUE_UPDATE do wszystkich WAITING pacjentów
-# ---------------------------------------------------------------------------
 
 async def _broadcast_queue_updates(redis_client, location_id: int, db: Session) -> None:
     """
@@ -920,8 +861,6 @@ async def _broadcast_queue_updates(redis_client, location_id: int, db: Session) 
         .all()
     )
 
-    # 0-indeksowane, zgodnie z konwencją /queue/join i /queue/ticket/{code}:
-    # "queue_position": 0 = jestem pierwszy (nikt WAITING przede mną).
     for idx, t in enumerate(waiting_tickets):
         update_msg = {
             "topic": f"guest:{t.ticket_code}",
@@ -931,10 +870,6 @@ async def _broadcast_queue_updates(redis_client, location_id: int, db: Session) 
         }
         await redis_client.publish(REDIS_CHANNEL, json.dumps(update_msg, default=str))
 
-
-# ---------------------------------------------------------------------------
-# WEBSOCKET — /api/v1/queue/ws/{ticket_code} (pacjent, bez JWT — Opcja A)
-# ---------------------------------------------------------------------------
 
 @app.websocket("/api/v1/queue/ws/{ticket_code}")
 async def guest_websocket_endpoint(
@@ -948,7 +883,6 @@ async def guest_websocket_endpoint(
     """
     from database import SessionLocal
 
-    # Sprawdź czy bilet o podanym ticket_code istnieje
     db = SessionLocal()
     try:
         ticket = db.query(models.Ticket).filter(
@@ -960,7 +894,6 @@ async def guest_websocket_endpoint(
     finally:
         db.close()
 
-    # Akceptuj połączenie i subskrybuj topik guest:{ticket_code}
     await ws_manager.connect(websocket)
     ws_manager.subscribe(websocket, [f"guest:{ticket_code}"])
     logger.info("WS guest: bilet '%s' połączony.", ticket_code)
@@ -975,10 +908,6 @@ async def guest_websocket_endpoint(
         logger.error("WS guest: błąd dla biletu '%s': %s", ticket_code, exc)
         ws_manager.disconnect(websocket)
 
-
-# ---------------------------------------------------------------------------
-# ADMIN — Tablets
-# ---------------------------------------------------------------------------
 
 @app.get("/api/v1/admin/tablets", response_model=list[TabletResponse], tags=["Admin — Tablets"])
 async def get_all_tablets(
@@ -1048,9 +977,7 @@ async def update_tablet(
     if "location_id" in data.model_fields_set:
         new_loc_id = data.location_id
         if new_loc_id is not None and new_loc_id != tablet.location_id:
-            # Weryfikacja: lokalizacja istnieje
             _get_location_or_404(new_loc_id, db)
-            # Odłącz ewentualny inny tablet z tej lokalizacji
             displaced_tablet = _detach_tablet_from_location(new_loc_id, exclude_tablet_id=tablet_id, db=db)
         tablet.location_id = new_loc_id
 
@@ -1125,9 +1052,6 @@ async def deactivate_tablet(
 
     await _broadcast_tablet_update(request.app.state.redis, tablet)
     if old_location_id:
-        # tablet.location_id jest już None, więc _broadcast_tablet_update go nie
-        # wyśle do starej lokalizacji — zrób to jawnie, żeby operator widział,
-        # że jego kiosk został odłączony.
         await publish_event(
             request.app.state.redis, f"location:{old_location_id}", "device.updated",
             {"tablet": _tablet_to_response(tablet).model_dump()},
@@ -1152,7 +1076,7 @@ async def reset_tablet_pairing(
     """
     tablet = _get_tablet_or_404(tablet_id, db)
     tablet.pairing_token = _generate_pairing_token(db)
-    tablet.paired_device_id = None  # nowy token = wolny do przejęcia przez dowolne urządzenie
+    tablet.paired_device_id = None
     db.commit()
     db.refresh(tablet)
 
@@ -1160,10 +1084,6 @@ async def reset_tablet_pairing(
 
     return _tablet_to_response(tablet)
 
-
-# ---------------------------------------------------------------------------
-# ADMIN — Locations
-# ---------------------------------------------------------------------------
 
 @app.get("/api/v1/admin/locations", response_model=list[LocationResponse], tags=["Admin — Locations"])
 async def get_all_locations(
@@ -1193,11 +1113,11 @@ async def create_location(
     db.commit()
     db.refresh(new_loc)
     response = _location_to_response(new_loc)
-    
+
     payload = {"location": response.model_dump()}
     await publish_event(request.app.state.redis, "admin", "location.created", payload)
     await publish_event(request.app.state.redis, f"location:{new_loc.id}", "location.created", payload)
-    
+
     return response
 
 
@@ -1227,27 +1147,21 @@ async def update_location(
     if data.category is not None:
         loc.category = data.category
 
-    # Tablet assignment — tylko jeśli tablet_id był jawnie podany w body
     affected_tablets: list[models.Tablet] = []
     if "tablet_id" in fields:
         new_tablet_id = data.tablet_id
         if new_tablet_id is None:
-            # Jawne odłączenie: ustaw location_id = None na obecnym tablecie
             for t in loc.tablets:
                 t.location_id = None
                 affected_tablets.append(t)
         else:
-            # Walidacja: tablet istnieje
             new_tablet = _get_tablet_or_404(new_tablet_id, db)
-            # Odłącz ewentualny inny tablet siedzący w tej lokalizacji
             displaced_tablet = _detach_tablet_from_location(location_id, exclude_tablet_id=new_tablet_id, db=db)
             if displaced_tablet:
                 affected_tablets.append(displaced_tablet)
-            # Odłącz nowy tablet od jego poprzedniej lokalizacji (jeśli był gdzie indziej)
             new_tablet.location_id = location_id
             affected_tablets.append(new_tablet)
 
-    # Synchronizacja operatorów M2M
     if data.user_ids is not None:
         users = db.query(models.User).filter(
             models.User.id.in_(data.user_ids)
@@ -1266,10 +1180,6 @@ async def update_location(
     await publish_event(request.app.state.redis, "admin", "location.updated", payload)
     await publish_event(request.app.state.redis, f"location:{loc.id}", "location.updated", payload)
 
-    # Powiadom każdy zmieniony tablet (przypisany/odłączony) — to jest sedno
-    # real-time parowania kiosku: kiosk podłączony przez WS swoim pairing_token
-    # (subskrybujący na razie tylko `tablet:{id}`) natychmiast dowiaduje się
-    # o przypisaniu do lokalizacji, zamiast czekać na kolejny cykl pollingu.
     for t in affected_tablets:
         await _broadcast_tablet_update(request.app.state.redis, t)
 
@@ -1303,16 +1213,15 @@ async def delete_location(
             detail="Nie można usunąć lokalizacji z historią biletów w kolejce. Dezaktywuj ją zamiast tego.",
         )
 
-    # Odłącz przypisane tablety
     for t in loc.tablets:
         t.location_id = None
     db.delete(loc)
     db.commit()
-    
+
     payload = {"location_id": location_id}
     await publish_event(request.app.state.redis, "admin", "location.deleted", payload)
     await publish_event(request.app.state.redis, f"location:{location_id}", "location.deleted", payload)
-    
+
     return {"message": f"Lokalizacja '{loc.name}' została usunięta."}
 
 
@@ -1329,11 +1238,11 @@ async def activate_location(
     db.commit()
     db.refresh(loc)
     response = _location_to_response(loc)
-    
+
     payload = {"location": response.model_dump()}
     await publish_event(request.app.state.redis, "admin", "location.updated", payload)
     await publish_event(request.app.state.redis, f"location:{loc.id}", "location.updated", payload)
-    
+
     return response
 
 
@@ -1352,15 +1261,13 @@ async def deactivate_location(
     """
     loc = _get_location_or_404(location_id, db)
     loc.is_active = False
-    # Odłącz tablet
     for t in loc.tablets:
         t.location_id = None
-    # Wyczyść operatorów przypisanych do lokalizacji
     loc.users = []
     db.commit()
     db.refresh(loc)
     response = _location_to_response(loc)
-    
+
     payload = {"location": response.model_dump()}
     await publish_event(request.app.state.redis, "admin", "location.updated", payload)
     await publish_event(request.app.state.redis, f"location:{loc.id}", "location.updated", payload)
@@ -1415,10 +1322,6 @@ async def resume_location_queue(
     return response
 
 
-# ---------------------------------------------------------------------------
-# ADMIN — Users
-# ---------------------------------------------------------------------------
-
 @app.get("/api/v1/admin/users", response_model=list[UserResponse], tags=["Admin — Users"])
 async def get_all_users(
     db: Session = Depends(get_db),
@@ -1437,12 +1340,10 @@ async def create_user(
     current_user: models.User = Depends(get_current_user),
 ):
     """Tworzy nowego użytkownika. Hasło jest hashowane bcryptem."""
-    # Sprawdź unikalność username
     existing = db.query(models.User).filter(models.User.username == data.username).first()
     if existing:
         raise HTTPException(status_code=409, detail=f"Użytkownik '{data.username}' już istnieje")
 
-    # Pobierz obiekty lokalizacji z bazy (walidacja ID)
     locations = []
     if data.location_ids:
         locations = db.query(models.Location).filter(
@@ -1464,12 +1365,12 @@ async def create_user(
     db.commit()
     db.refresh(new_user)
     response = _user_to_response(new_user)
-    
+
     payload = {"user": response.model_dump()}
     await publish_event(request.app.state.redis, "admin", "user.created", payload)
     for loc in new_user.locations:
         await publish_event(request.app.state.redis, f"location:{loc.id}", "user.created", payload)
-        
+
     return response
 
 
@@ -1490,7 +1391,6 @@ async def update_user(
     user = _get_user_or_404(user_id, db)
 
     if data.username is not None:
-        # Sprawdź unikalność nowego username (jeśli inny niż obecny)
         if data.username != user.username:
             conflict = db.query(models.User).filter(models.User.username == data.username).first()
             if conflict:
@@ -1504,11 +1404,9 @@ async def update_user(
     if data.role is not None:
         user.role = data.role
     if data.password:
-        # Puste string "" też traktujemy jako "nie zmieniaj"
         user.password_hash = hash_password(data.password)
 
     if data.location_ids is not None:
-        # Pełna synchronizacja listy lokalizacji
         locations = db.query(models.Location).filter(
             models.Location.id.in_(data.location_ids)
         ).all()
@@ -1519,12 +1417,12 @@ async def update_user(
     db.commit()
     db.refresh(user)
     response = _user_to_response(user)
-    
+
     payload = {"user": response.model_dump()}
     await publish_event(request.app.state.redis, "admin", "user.updated", payload)
     for loc in user.locations:
         await publish_event(request.app.state.redis, f"location:{loc.id}", "user.updated", payload)
-        
+
     return response
 
 
@@ -1541,22 +1439,20 @@ async def delete_user(
     """
     user = _get_user_or_404(user_id, db)
 
-    # Zabezpieczenie: nie pozwól usunąć samego siebie
     if user.id == current_user.id:
         raise HTTPException(status_code=400, detail="Nie możesz usunąć własnego konta")
 
-    
-    # Przechwyć ID lokacji przed usunięciem żeby wiedzieć gdzie wysłać event
+
     loc_ids = [loc.id for loc in user.locations]
-    
+
     db.delete(user)
     db.commit()
-    
+
     payload = {"user_id": str(user_id)}
     await publish_event(request.app.state.redis, "admin", "user.deleted", payload)
     for loc_id in loc_ids:
         await publish_event(request.app.state.redis, f"location:{loc_id}", "user.deleted", payload)
-        
+
     return {"message": f"Użytkownik '{user.username}' został usunięty."}
 
 
@@ -1573,12 +1469,12 @@ async def activate_user(
     db.commit()
     db.refresh(user)
     response = _user_to_response(user)
-    
+
     payload = {"user": response.model_dump()}
     await publish_event(request.app.state.redis, "admin", "user.updated", payload)
     for loc in user.locations:
         await publish_event(request.app.state.redis, f"location:{loc.id}", "user.updated", payload)
-        
+
     return response
 
 
@@ -1595,29 +1491,21 @@ async def deactivate_user(
     """
     user = _get_user_or_404(user_id, db)
 
-    # Zabezpieczenie: nie pozwól dezaktywować samego siebie
     if user.id == current_user.id:
         raise HTTPException(status_code=400, detail="Nie możesz dezaktywować własnego konta")
 
     user.is_active = False
-    # Kaskada: wyczyść wszystkie przypisania do lokalizacji
     user.locations = []
 
     db.commit()
     db.refresh(user)
     response = _user_to_response(user)
-    
+
     payload = {"user": response.model_dump()}
     await publish_event(request.app.state.redis, "admin", "user.updated", payload)
-    # The user was detached from all locations, but the event should still be sent to admin. 
-    # If we want to send it to old locations, we'd need to track them. Admin is enough.
-    
+
     return response
 
-
-# ---------------------------------------------------------------------------
-# ADMIN — Queue (widok kolejki per lokalizacja)
-# ---------------------------------------------------------------------------
 
 @app.get(
     "/api/v1/admin/locations/{location_id}/queue",
@@ -1663,10 +1551,6 @@ async def get_location_queue(
     )
 
 
-# ---------------------------------------------------------------------------
-# ADMIN — Ticket actions (call / complete / cancel)
-# ---------------------------------------------------------------------------
-
 @app.post(
     "/api/v1/admin/tickets/{ticket_id}/call",
     response_model=TicketResponse,
@@ -1696,7 +1580,6 @@ async def call_ticket(
     db.refresh(ticket)
     response = _ticket_to_response(ticket)
 
-    # Event dla panelu admina/operatora (location topic)
     await publish_event(
         request.app.state.redis,
         topic=f"location:{ticket.location_id}",
@@ -1704,7 +1587,6 @@ async def call_ticket(
         payload={"ticket": response.model_dump()},
     )
 
-    # Event YOUR_TURN do wezwanego pacjenta (guest topic)
     your_turn_msg = {
         "topic": f"guest:{ticket.ticket_code}",
         "event": "YOUR_TURN",
@@ -1713,7 +1595,6 @@ async def call_ticket(
         REDIS_CHANNEL, json.dumps(your_turn_msg, default=str)
     )
 
-    # QUEUE_UPDATE dla wszystkich pozostałych WAITING pacjentów
     await _broadcast_queue_updates(request.app.state.redis, ticket.location_id, db)
 
     return response
@@ -1747,7 +1628,6 @@ async def complete_ticket(
     db.refresh(ticket)
     response = _ticket_to_response(ticket)
 
-    # Event dla panelu admina/operatora
     await publish_event(
         request.app.state.redis,
         topic=f"location:{ticket.location_id}",
@@ -1755,7 +1635,6 @@ async def complete_ticket(
         payload={"ticket": response.model_dump()},
     )
 
-    # QUEUE_UPDATE dla wszystkich WAITING pacjentów
     await _broadcast_queue_updates(request.app.state.redis, ticket.location_id, db)
 
     return response
@@ -1790,7 +1669,6 @@ async def cancel_ticket(
     db.refresh(ticket)
     response = _ticket_to_response(ticket)
 
-    # Event dla panelu admina/operatora
     await publish_event(
         request.app.state.redis,
         topic=f"location:{ticket.location_id}",
@@ -1798,7 +1676,6 @@ async def cancel_ticket(
         payload={"ticket": response.model_dump()},
     )
 
-    # QUEUE_UPDATE dla wszystkich WAITING pacjentów
     await _broadcast_queue_updates(request.app.state.redis, ticket.location_id, db)
 
     return response

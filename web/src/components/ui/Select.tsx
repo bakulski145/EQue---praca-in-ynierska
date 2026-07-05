@@ -35,13 +35,6 @@ function CheckIcon() {
   );
 }
 
-/**
- * Własny odpowiednik natywnego <select> — ten sam kontrakt (value/onChange
- * jako stringi), ale w pełni stylowany pod design system eQue (jasny/ciemny
- * motyw przez zmienne CSS) zamiast wyglądu systemowego przeglądarki.
- * Panel opcji renderuje się portalem do <body>, żeby nie ucinał go
- * `overflow: auto` panelu bocznego (SlidePanel).
- */
 export default function Select({ value, onChange, options, placeholder = 'Wybierz…', disabled = false, style }: SelectProps) {
   const [open, setOpen] = useState(false);
   const [openCount, setOpenCount] = useState(0);

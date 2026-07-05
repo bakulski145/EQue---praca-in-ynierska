@@ -9,7 +9,6 @@ function minutesSince(iso: string): number {
   return Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
 }
 
-/* ── sub-components (mirrors AdminHome's dashboard language) ─── */
 
 function StatCard({ label, value, unit, icon, accent = 'var(--text-brand)' }: {
   label: string; value: string | number; unit?: string; icon: React.ReactNode; accent?: string;
@@ -107,7 +106,6 @@ const ICON = {
   ),
 };
 
-/* ── main component ───────────────────────────────────── */
 
 const UserHome = forwardRef<RefreshHandle, { userName?: string; locationIds: number[] }>(function UserHome({ userName, locationIds }, ref) {
   const [myLocations, setMyLocations] = useState<LocationResponse[]>([]);
@@ -128,7 +126,7 @@ const UserHome = forwardRef<RefreshHandle, { userName?: string; locationIds: num
       // zachowaj ostatnio znane dane — WS dociągnie zmiany na żywo,
       // przycisk "Odśwież" pozwala spróbować ponownie ręcznie
     }
-    bumpTick(n => n + 1); // odśwież też liczniki z ticketActivity (czeka X min, itp.)
+    bumpTick(n => n + 1);
   }, [locationIds]);
 
   useImperativeHandle(ref, () => ({ refetch }), [refetch]);
@@ -138,8 +136,6 @@ const UserHome = forwardRef<RefreshHandle, { userName?: string; locationIds: num
     return () => clearTimeout(initial);
   }, [refetch]);
 
-  /* Nowe zgłoszenie / wezwanie / zakończenie w jednej z Twoich lokalizacji —
-     zamiast czekać na kolejny poll, odśwież kolejkę od razu (ticket.*). */
   useEffect(() => {
     const handler = (msg: WsMessage) => {
       const locId = (msg.ticket as { location_id?: number } | undefined)?.location_id;
@@ -189,7 +185,7 @@ const UserHome = forwardRef<RefreshHandle, { userName?: string; locationIds: num
         </p>
       )}
 
-      {/* KPI row */}
+      {}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
         <StatCard label="Lokalizacje" value={myActiveLocations.length} unit={`/ ${myLocations.length}`} icon={ICON.pin} />
         <StatCard label="W kolejce teraz" value={totalWaiting + totalServingNow} icon={ICON.users} />
@@ -198,7 +194,7 @@ const UserHome = forwardRef<RefreshHandle, { userName?: string; locationIds: num
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: 16, alignItems: 'start' }}>
-        {/* My locations overview */}
+        {}
         <CardShell title="Twoje lokalizacje — przegląd" subtitle="Stan kolejki w każdej przypisanej lokalizacji">
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
             {sortByName(myLocations, l => l.name).map((loc, i) => {
@@ -233,7 +229,7 @@ const UserHome = forwardRef<RefreshHandle, { userName?: string; locationIds: num
           </div>
         </CardShell>
 
-        {/* Upcoming across locations */}
+        {}
         <CardShell title="Najdłużej czekający" subtitle="Kolejni klienci we wszystkich Twoich lokalizacjach">
           {upcoming.length === 0 ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 4px' }}>

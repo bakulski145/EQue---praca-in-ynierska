@@ -20,8 +20,6 @@ const _ticketTones = {
   TicketCodeTone.onDark: Colors.white,
 };
 
-/// eQue TicketCode — hero-owy kod biletu/kolejki (np. "A-042", "B05").
-/// Zawsze Space Grotesk, tabularne cyfry, jak w design systemie.
 class TicketCode extends StatelessWidget {
   final String code;
   final TicketCodeSize size;

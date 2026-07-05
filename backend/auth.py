@@ -6,13 +6,10 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from database import SessionLocal
 
-# Klucz prywatny serwera
-# Tylko ten serwer potrafi wystawić i zweryfikować token za pomocą tego klucza.
 SECRET_KEY = "super-sekretny-klucz-kolejki"
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 120  # Token wygasa po 2 godzinach
+ACCESS_TOKEN_EXPIRE_MINUTES = 120
 
-# Schemat Bearer token — używany przez Depends(get_current_user)
 bearer_scheme = HTTPBearer()
 
 
@@ -52,7 +49,7 @@ def get_current_user(
     Dependency FastAPI: weryfikuje token JWT z nagłówka Authorization: Bearer <token>
     i zwraca obiekt User z bazy. Rzuca 401 jeśli token jest nieważny lub użytkownik nieaktywny.
     """
-    import models  # import lokalny, żeby uniknąć cyklicznych importów
+    import models
 
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -83,4 +80,4 @@ def get_current_user(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Konto użytkownika jest nieaktywne",
         )
-    return user
+    return user

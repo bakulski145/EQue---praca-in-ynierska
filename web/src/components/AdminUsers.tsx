@@ -8,7 +8,6 @@ import Select from './ui/Select';
 
 type OnlineStatus = 'online' | 'offline';
 
-/* ── helpers ─────────────────────────────────────────── */
 
 function getInitials(name: string) {
   return name.trim().split(/\s+/).slice(0, 2).map(w => w[0]?.toUpperCase() ?? '').join('');
@@ -32,7 +31,6 @@ const STATUS_LABEL: Record<OnlineStatus, string> = {
   offline: 'Offline',
 };
 
-/* ── sub-components ───────────────────────────────────── */
 
 function Avatar({ name, status, active = true, size = 44 }: { name: string; status: OnlineStatus; active?: boolean; size?: number }) {
   const tone = active ? AVATAR_TONES[name.charCodeAt(0) % AVATAR_TONES.length] : { bg: 'var(--slate-100)', fg: 'var(--slate-400)' };
@@ -140,7 +138,6 @@ const btnDanger: React.CSSProperties = {
   fontFamily: 'var(--font-ui)', fontWeight: 600, fontSize: 14.5, cursor: 'pointer',
 };
 
-/* ── slide panel ──────────────────────────────────────── */
 
 function SlidePanel({ title, open, onClose, children, footer }: {
   title: string; open: boolean; onClose: () => void;
@@ -184,7 +181,6 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-/* ── main component ───────────────────────────────────── */
 
 const AdminUsers = forwardRef<RefreshHandle, { addOpen?: boolean; onAddClose?: () => void; searchQuery?: string; currentUserId?: string }>(function AdminUsers({ addOpen: addPanelOpen = false, onAddClose, searchQuery = '', currentUserId }, ref) {
   const [users, setUsers] = useState<UserResponse[]>([]);
@@ -210,14 +206,10 @@ const AdminUsers = forwardRef<RefreshHandle, { addOpen?: boolean; onAddClose?: (
   useImperativeHandle(ref, () => ({ refetch }), [refetch]);
 
   useEffect(() => {
-    // setTimeout(…, 0) zamiast bezpośredniego refetch() w ciele efektu —
-    // refetch() jest zawsze wywoływane z callbacku timera, nigdy synchronicznie.
     const initial = setTimeout(refetch, 0);
     return () => clearTimeout(initial);
   }, [refetch]);
 
-  /* Live obecność operatorów przez WebSocket (user.presence) — heartbeat z panelu
-     operatora aktualizuje last_seen_at na backendzie, patrz API_SPEC.md sekcja 5. */
   useEffect(() => {
     const offPresence = ws.on('user.presence', msg => {
       const userId = msg.user_id as string;
@@ -239,20 +231,18 @@ const AdminUsers = forwardRef<RefreshHandle, { addOpen?: boolean; onAddClose?: (
     return () => { offPresence(); offCreated(); offUpdated(); offDeleted(); };
   }, []);
 
-  /* add panel — controlled by parent */
   const [newUsername, setNewUsername] = useState('');
   const [newFullName, setNewFullName] = useState('');
   const [newPosition, setNewPosition] = useState('');
   const [newRole, setNewRole] = useState<Role>('OPERATOR');
   const [newPassword, setNewPassword] = useState('');
 
-  /* edit panel — password input is always separate and starts empty */
   const [editUser, setEditUser] = useState<UserResponse | null>(null);
   const [editPasswordInput, setEditPasswordInput] = useState('');
 
   const openEdit = (user: UserResponse) => {
     setEditUser({ ...user });
-    setEditPasswordInput(''); // always start empty — never reveal stored password
+    setEditPasswordInput('');
   };
 
   const resetAddForm = () => {
@@ -334,12 +324,11 @@ const AdminUsers = forwardRef<RefreshHandle, { addOpen?: boolean; onAddClose?: (
     u => u.full_name
   );
 
-  /* ── render ────────────────────────────────────────── */
   return (
     <div>
-      {/* User list */}
+      {}
       <div style={{ background: 'var(--surface-card)', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-sm)', border: '1px solid var(--border-subtle)', overflow: 'hidden' }}>
-        {/* Table header */}
+        {}
         <div style={{
           display: 'grid', gridTemplateColumns: '2fr 1.4fr 0.9fr 1fr 96px',
           gap: 12, padding: '12px 24px',
@@ -377,7 +366,7 @@ const AdminUsers = forwardRef<RefreshHandle, { addOpen?: boolean; onAddClose?: (
                 transition: 'background var(--dur-base) var(--ease-out)',
               }}
             >
-              {/* Avatar + name */}
+              {}
               <div style={{ display: 'flex', alignItems: 'center', gap: 14, minWidth: 0 }}>
                 <Avatar name={user.full_name} status={status} active={user.is_active} size={44} />
                 <div style={{ minWidth: 0 }}>
@@ -403,7 +392,7 @@ const AdminUsers = forwardRef<RefreshHandle, { addOpen?: boolean; onAddClose?: (
                 </div>
               </div>
 
-              {/* Location column */}
+              {}
               <div style={{ minWidth: 0 }}>
                 {isAdmin ? (
                   <span style={{
@@ -458,13 +447,13 @@ const AdminUsers = forwardRef<RefreshHandle, { addOpen?: boolean; onAddClose?: (
                 )}
               </div>
 
-              {/* Role badge */}
+              {}
               <div><RoleBadge role={user.role} active={user.is_active} /></div>
 
-              {/* Status badge */}
+              {}
               <div><StatusBadge tone={badge.tone}>{badge.label}</StatusBadge></div>
 
-              {/* Actions: deactivate switch + edit */}
+              {}
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6 }}>
                 <Switch
                   checked={user.is_active}
@@ -494,7 +483,7 @@ const AdminUsers = forwardRef<RefreshHandle, { addOpen?: boolean; onAddClose?: (
         })}
       </div>
 
-      {/* ── Add panel ─────────────────────────────────── */}
+      {}
       <SlidePanel title="Nowy użytkownik" open={addPanelOpen} onClose={() => { onAddClose?.(); resetAddForm(); }} footer={
         <>
           <button style={btnPrimary} onClick={handleAdd}
@@ -542,7 +531,7 @@ const AdminUsers = forwardRef<RefreshHandle, { addOpen?: boolean; onAddClose?: (
         </div>
       </SlidePanel>
 
-      {/* ── Edit panel ────────────────────────────────── */}
+      {}
       <SlidePanel title="Edytuj użytkownika" open={!!editUser} onClose={() => setEditUser(null)} footer={
         <>
           <button style={btnDanger} onClick={handleDelete}>Usuń</button>
@@ -555,7 +544,7 @@ const AdminUsers = forwardRef<RefreshHandle, { addOpen?: boolean; onAddClose?: (
       }>
         {editUser && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-            {/* Avatar preview */}
+            {}
             <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '16px 18px', background: 'var(--surface-sunken)', borderRadius: 'var(--radius-md)' }}>
               <Avatar name={editUser.full_name || '?'} status={editUser.online ? 'online' : 'offline'} active={editUser.is_active} size={48} />
               <div style={{ minWidth: 0 }}>
@@ -605,7 +594,6 @@ const AdminUsers = forwardRef<RefreshHandle, { addOpen?: boolean; onAddClose?: (
                   setEditUser({
                     ...editUser,
                     role,
-                    /* admin ma dostęp globalny — czyścimy przypisania */
                     location_ids: role === 'ADMIN' ? [] : editUser.location_ids,
                   });
                 }}

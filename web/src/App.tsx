@@ -17,7 +17,6 @@ import type { MeResponse, RefreshHandle } from './lib/apiTypes';
 type Role = 'admin' | 'user' | null;
 type Theme = 'light' | 'dark';
 
-/** Sesja wyprowadzona z /auth/me — jedyne trwałe dane to sam token JWT. */
 interface Session {
   id: string;
   role: Role;
@@ -45,7 +44,6 @@ const TAB_META: Record<string, { title: string; action: string | null }> = {
 
 const SEARCHABLE_TABS = new Set(['tablety', 'lokalizacje', 'uzytkownicy']);
 
-/* ── header icon buttons ───────────────────────────────── */
 
 function RefreshButton({ onClick, spinning }: { onClick: () => void; spinning: boolean }) {
   return (
@@ -184,12 +182,7 @@ export default function App() {
     localStorage.setItem('eque_theme', theme);
   }, [theme]);
 
-  // Sesja żyje wyłącznie w pamięci — jedyne co przetrwa przeładowanie strony
-  // to sam token JWT w localStorage. Rola/imię/lokalizacje są za każdym razem
-  // pobierane na nowo z serwera, żeby front nie ufał temu, co sam sobie zapisał.
   useEffect(() => {
-    // setTimeout(…, 0) — sprawdzenie sesji (i setCheckingSession) zawsze woła
-    // się z callbacku timera, nigdy synchronicznie w ciele efektu.
     const id = setTimeout(() => {
       const token = getToken();
       if (!token) {
@@ -204,14 +197,10 @@ export default function App() {
     return () => clearTimeout(id);
   }, []);
 
-  // Jedno długo żyjące połączenie WebSocket na całą sesję (API_SPEC.md sekcja 5) —
-  // admin subskrybuje wszystko, operator tylko swoje lokalizacje.
   useEffect(() => {
     if (!session) return;
     const topics = session.role === 'admin' ? ['admin'] : session.locationIds.map(id => `location:${id}`);
     ws.connect(topics);
-    // Zamiast pollingu co 10s: jeśli połączenie się zerwie i wróci, dociągamy
-    // stan aktualnie widocznej zakładki jednorazowo (mogliśmy przegapić eventy).
     const offReconnect = ws.onReconnect(() => { contentRef.current?.refetch(); });
     return () => { offReconnect(); ws.disconnect(); };
   }, [session]);
@@ -234,8 +223,6 @@ export default function App() {
 
   const handleRefresh = () => {
     if (refreshing || !contentRef.current) return;
-    // Start fetchu, ZANIM setRefreshing przełączy widok na overlay i odmontuje
-    // aktualny komponent (i jego ref) — obietnica żyje niezależnie od tego.
     const done = contentRef.current.refetch();
     setRefreshing(true);
     done.finally(() => setRefreshing(false));
@@ -290,7 +277,7 @@ export default function App() {
       )}
 
       <main style={{ flex: 1, display: 'flex', flexDirection: 'column', overflowY: 'auto' }}>
-        {/* Sticky page header */}
+        {}
         <div style={{
           position: 'sticky', top: 0, zIndex: 20,
           background: 'var(--surface-card)',
@@ -314,7 +301,7 @@ export default function App() {
           </div>
         </div>
 
-        {/* Content area */}
+        {}
         <div style={{ flex: 1, padding: '40px 48px', overflowY: 'auto' }}>
           <div style={{ maxWidth: 1240, margin: '0 auto', width: '100%' }}>
             {refreshing ? <RefreshOverlay /> : (

@@ -15,7 +15,6 @@ from auth import hash_password
 def seed_data():
     db = SessionLocal()
 
-    # Guard: nie seeduj drugi raz
     if db.query(User).first():
         print("Baza już zawiera dane. Pomijam seeding.")
         db.close()
@@ -23,9 +22,6 @@ def seed_data():
 
     print("Zasilanie bazy danych (Seeding)...")
 
-    # ------------------------------------------------------------------
-    # 1. Użytkownicy
-    # ------------------------------------------------------------------
 
     admin = User(
         username="admin",
@@ -54,11 +50,8 @@ def seed_data():
     )
 
     db.add_all([admin, op1, op2])
-    db.commit()   # nadaj UUID-y
+    db.commit()
 
-    # ------------------------------------------------------------------
-    # 2. Lokalizacje
-    # ------------------------------------------------------------------
 
     loc1 = Location(
         name="Rejestracja Ogólna",
@@ -77,19 +70,13 @@ def seed_data():
     )
 
     db.add_all([loc1, loc2])
-    db.commit()   # nadaj ID
-
-    # ------------------------------------------------------------------
-    # 3. Przypisanie operatorów do lokalizacji (user_locations M2M)
-    # ------------------------------------------------------------------
-
-    op1.locations = [loc1]          # Jan → Rejestracja
-    op2.locations = [loc1, loc2]    # Anna → obie lokalizacje
     db.commit()
 
-    # ------------------------------------------------------------------
-    # 4. Tablety
-    # ------------------------------------------------------------------
+
+    op1.locations = [loc1]
+    op2.locations = [loc1, loc2]
+    db.commit()
+
 
     tab1 = Tablet(
         name="Kiosk Rejestracja",
@@ -108,16 +95,9 @@ def seed_data():
     db.add_all([tab1, tab2])
     db.commit()
 
-    # ------------------------------------------------------------------
-    # 5. Testowe bilety (kolejka)
-    # ------------------------------------------------------------------
 
     now = datetime.now(timezone.utc)
 
-    # Rejestracja — 3 oczekujące + 1 obsługiwany. Bez customer_name: apka
-    # mobilna dziś nie zbiera imienia/nazwiska przy dołączeniu do kolejki —
-    # frontend sam pokazuje wtedy "Zgłoszenie <kod>" (patrz UserQueue.tsx),
-    # więc dane testowe mają wyglądać tak, jak realnie dodane zgłoszenie.
     tickets_loc1 = [
         Ticket(
             ticket_code="A01",
@@ -148,7 +128,6 @@ def seed_data():
         ),
     ]
 
-    # Kardiologia — 2 oczekujące
     tickets_loc2 = [
         Ticket(
             ticket_code="B01",

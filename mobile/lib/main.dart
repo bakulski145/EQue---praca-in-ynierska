@@ -20,7 +20,6 @@ Future<void> main() async {
     settings: initializationSettings,
   );
 
-  // Uruchamiamy aplikację bez szukania kamer
   runApp(const MyApp());
 }
 
@@ -33,7 +32,7 @@ class MyApp extends StatelessWidget {
       title: 'eQue',
       debugShowCheckedModeBanner: false,
       theme: buildEQueTheme(),
-      home: const HomeScreen(), // Wywołujemy HomeScreen bez parametru
+      home: const HomeScreen(),
     );
   }
 }

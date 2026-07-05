@@ -15,7 +15,6 @@ function formatLastSeen(lastSeenAt: string | null): string {
   return `Widziano ${hours} godz. temu`;
 }
 
-/* ── sub-components ───────────────────────────────────── */
 
 function StatusBadge({ tone, children }: { tone: 'success' | 'danger' | 'neutral'; children: React.ReactNode }) {
   const map = {
@@ -90,7 +89,6 @@ function TabletIcon({ size = 22 }: { size?: number }) {
   );
 }
 
-/** Pole tylko-do-odczytu z tokenem parowania + przyciskiem kopiowania. */
 function TokenField({ token }: { token: string }) {
   const [copied, setCopied] = useState(false);
 
@@ -123,7 +121,6 @@ function TokenField({ token }: { token: string }) {
   );
 }
 
-/* ── slide panel (matches AdminUsers) ─────────────────── */
 
 function SlidePanel({ title, open, onClose, children, footer }: {
   title: string; open: boolean; onClose: () => void;
@@ -167,7 +164,6 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-/* ── shared styles ─────────────────────────────────────── */
 
 const btnPrimary: React.CSSProperties = {
   background: 'var(--brand)', color: 'var(--on-brand)', border: 'none',
@@ -198,7 +194,6 @@ const labelStyle: React.CSSProperties = {
   color: 'var(--text-body)',
 };
 
-/* ── main component ───────────────────────────────────── */
 
 const AdminDashboard = forwardRef<RefreshHandle, { addOpen?: boolean; onAddClose?: () => void; searchQuery?: string }>(function AdminDashboard({ addOpen = false, onAddClose, searchQuery = '' }, ref) {
   const [locations, setLocations] = useState<LocationResponse[]>([]);
@@ -224,14 +219,10 @@ const AdminDashboard = forwardRef<RefreshHandle, { addOpen?: boolean; onAddClose
   useImperativeHandle(ref, () => ({ refetch }), [refetch]);
 
   useEffect(() => {
-    // setTimeout(…, 0) zamiast bezpośredniego refetch() w ciele efektu —
-    // refetch() jest zawsze wywoływane z callbacku timera, nigdy synchronicznie.
     const initial = setTimeout(refetch, 0);
     return () => clearTimeout(initial);
   }, [refetch]);
 
-  /* Live-update z WebSocketa — patrz API_SPEC.md sekcja 5 (device.*). Gdyby
-     połączenie WS na chwilę padło, App.tsx dociągnie stan po jego powrocie. */
   useEffect(() => {
     const offCreated = ws.on('device.created', msg => {
       const tablet = msg.tablet as TabletResponse;
@@ -315,7 +306,7 @@ const AdminDashboard = forwardRef<RefreshHandle, { addOpen?: boolean; onAddClose
       });
       setDevices(prev => prev.map(d => d.id === updated.id ? updated : d));
       setEditingDevice(null);
-      refetch(); // odśwież lokalizacje — poprzedni najemca mógł zostać odłączony
+      refetch();
     } catch (err) {
       alertDialog(err instanceof ApiError ? err.message : 'Nie udało się zapisać zmian.', { title: 'Błąd', tone: 'danger' });
     }
@@ -346,7 +337,6 @@ const AdminDashboard = forwardRef<RefreshHandle, { addOpen?: boolean; onAddClose
     d => d.name
   );
 
-  /* ── render ────────────────────────────────────────── */
   return (
     <div>
       {!loading && visibleDevices.length === 0 ? (
@@ -423,7 +413,7 @@ const AdminDashboard = forwardRef<RefreshHandle, { addOpen?: boolean; onAddClose
         </div>
       )}
 
-      {/* ── Add device modal ──────────────────────────────── */}
+      {}
       {addOpen && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(12,16,19,0.55)', padding: 16 }}>
           <div style={{ width: '100%', maxWidth: 400, background: 'var(--surface-card)', borderRadius: 'var(--radius-xl)', padding: 28, boxShadow: '0 18px 48px rgba(21,27,31,0.16)' }}>
@@ -468,7 +458,7 @@ const AdminDashboard = forwardRef<RefreshHandle, { addOpen?: boolean; onAddClose
         </div>
       )}
 
-      {/* ── Edit panel ────────────────────────────────── */}
+      {}
       <SlidePanel title="Edytuj tablet" open={!!editingDevice} onClose={() => setEditingDevice(null)} footer={
         <>
           <button style={btnDanger} onClick={handleDeleteDevice}>Usuń</button>

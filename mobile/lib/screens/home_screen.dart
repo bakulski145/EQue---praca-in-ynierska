@@ -21,9 +21,6 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   String? _zapisanyBilet;
-  // Dopóki nie sprawdzimy, czy ten tablet jest zapamiętanym kioskiem, nie
-  // pokazujemy normalnego ekranu głównego — inaczej mignąłby na ułamek
-  // sekundy przed przekierowaniem do trybu kiosku.
   bool _sprawdzanieKiosku = true;
 
   @override
@@ -74,7 +71,6 @@ class _HomeScreenState extends State<HomeScreen> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              // Długie przytrzymanie logo = ukryte wejście do konfiguracji kiosku.
               GestureDetector(
                 onLongPress: () {
                   Navigator.push(
@@ -96,7 +92,6 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
               const SizedBox(height: 28),
 
-              // --- BANER PRZYWRACAJĄCY AKTYWNY BILET ---
               if (_zapisanyBilet != null) ...[
                 EQueCard(
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
@@ -104,12 +99,9 @@ class _HomeScreenState extends State<HomeScreen> {
                     await Navigator.push(
                       context,
                       MaterialPageRoute(
-                        // resumeExisting: dociągamy stan istniejącego biletu przez REST,
-                        // NIE dołączamy do kolejki drugi raz (to utworzyłoby duplikat).
                         builder: (context) => QueueStatusScreen(scannedToken: _zapisanyBilet!, resumeExisting: true),
                       ),
                     );
-                    // Po powrocie odświeżamy stan, na wypadek gdyby pacjent zrezygnował z kolejki
                     _sprawdzAktywnyBilet();
                   },
                   child: Row(
@@ -143,7 +135,6 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
                 const SizedBox(height: 16),
               ],
-              // -----------------------------------------
 
               _MenuButton(
                 icon: Icons.qr_code_scanner,

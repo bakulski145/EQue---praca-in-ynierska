@@ -23,13 +23,11 @@ class Placowka {
     required this.openedWindows,
   });
 
-  // Konstruktor do parsowania JSON-a z API
   factory Placowka.fromJson(Map<String, dynamic> json) {
     return Placowka(
       id: json['id'].toString(),
       name: json['name'] ?? 'Nieznana placówka',
       adress: json['adress'] ?? 'Brak adresu',
-      // Mapujemy lat i lng z JSON na obiekt LatLng
       pozycja: LatLng(
         (json['lat'] as num?)?.toDouble() ?? 0.0,
         (json['lng'] as num?)?.toDouble() ?? 0.0,
@@ -59,18 +57,15 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   Future<void> _pobierzPlacowkiZAPI() async {
-    // TUTAJ WKLEJ SWÓJ LINK Z MOCKAPI.IO:
     const String apiUrl = 'https://6a351e41f957779fdb3021c8.mockapi.io/locations';
 
     try {
       final response = await http.get(Uri.parse(apiUrl)).timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
-        // Dekodujemy JSON z odpowiedzi
         final List<dynamic> data = jsonDecode(response.body);
         
         setState(() {
-          // Mapujemy listę JSON na listę obiektów Placowka
           _placowki = data.map((json) => Placowka.fromJson(json)).toList();
           if (_placowki.isNotEmpty) {
             _wybranaPlacowka = _placowki.first;
@@ -100,7 +95,6 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   Widget _budujCialoEkranu() {
-    // Stan 1: Ładowanie danych
     if (_isLoading) {
       return Center(
         child: Column(
@@ -114,7 +108,6 @@ class _MapScreenState extends State<MapScreen> {
       );
     }
 
-    // Stan 2: Błąd API
     if (_errorMessage != null) {
       return Center(
         child: Column(
@@ -139,12 +132,11 @@ class _MapScreenState extends State<MapScreen> {
       );
     }
 
-    // Stan 3: Sukces - wyświetlanie mapy z danymi
     return Stack(
       children: [
         FlutterMap(
           options: const MapOptions(
-            initialCenter: LatLng(50.0614, 19.9380), // Centrum Krakowa
+            initialCenter: LatLng(50.0614, 19.9380),
             initialZoom: 12.5,
           ),
           children: [

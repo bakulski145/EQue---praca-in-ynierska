@@ -16,22 +16,6 @@ import '../widgets/status_chip.dart';
 import '../widgets/ticket_code.dart';
 import 'kiosk_login_screen.dart';
 
-/// Ekran kiosku: pokazuje stałą literę kolejki lokalizacji (np. "A", tylko
-/// informacyjnie — do niczego już nie służy) oraz KOD ZAPISU: krótkotrwały,
-/// 4-cyfrowy kod odświeżany co 30s, który jest jedynym sposobem dołączenia do
-/// kolejki. Klient wpisuje ten kod ręcznie w swojej aplikacji albo skanuje
-/// wyświetlony obok kod QR, który koduje ten sam, aktualny kod zapisu.
-/// Świadome ograniczenie bezpieczeństwa: stała litera dałaby się łatwo
-/// zapamiętać/przekazać dalej bez faktycznej obecności w kolejce.
-///
-/// Stan aktualizuje się w czasie rzeczywistym przez WebSocket:
-///   - `device.updated` / `device.deleted` — tablet dostał (lub stracił)
-///     przypisaną lokalizację w panelu administratora,
-///   - `ticket.updated` — operator wezwał/zakończył/anulował bilet,
-///   - `location.updated` — operator wstrzymał/wznowił zapisy.
-/// Endpoint REST `/kiosk/status` służy tylko do wczytania stanu początkowego
-/// i jako rzadki fallback resync (na wypadek zerwania WS). Kod zapisu ma
-/// osobny, szybki cykl odświeżania — patrz `_pobierzKodZapisu`.
 class KioskQrScreen extends StatefulWidget {
   final String adminToken;
 
@@ -48,31 +32,22 @@ class _KioskQrScreenState extends State<KioskQrScreen> {
   int? _locationId;
   String? _locationName;
   String? _queueCode;
-  // Rotujący kod zapisu (30s) — jedyny sposób dołączenia do kolejki.
   String? _signupCode;
   Timer? _signupCodeTimer;
   String? _currentTicketCode;
   bool _hasLocation = false;
-  // false = admin wyłączył ten tablet — pokazujemy komunikat, ale NIE
-  // zapominamy tokenu, żeby po ponownym włączeniu wróciło samo.
   bool _kioskEnabled = true;
-  // false = operator wstrzymał NOWE zapisy (zakładka "Kolejka na żywo") —
-  // INNE niż _kioskEnabled: obsługa już czekających trwa dalej, więc sekcja
-  // "aktualnie obsługiwany" zostaje widoczna, zmienia się tylko zaproszenie do dołączenia.
   bool _acceptingNewTickets = true;
 
   KioskSocketService? _socketService;
   Timer? _timerOdswiezania;
   bool _isLoading = true;
   String? _errorMessage;
-  // Identyfikator TEGO fizycznego urządzenia — wysyłany razem z pairing_token,
-  // żeby backend mógł wymusić "jeden token = jeden tablet" (patrz kiosk_prefs.dart).
   String? _deviceId;
 
   @override
   void initState() {
     super.initState();
-    // Blokujemy wygaszanie ekranu, żeby tablet przy wejściu nie zgasł
     WakelockPlus.enable();
     _inicjalizuj();
   }
@@ -89,8 +64,6 @@ class _KioskQrScreenState extends State<KioskQrScreen> {
     _socketService = KioskSocketService(
       wsUrl: wsUrl,
       onEvent: _obsluzZdarzenieWs,
-      // Po zerwaniu i przywróceniu połączenia mogliśmy przegapić eventy —
-      // dociągamy pełny stan jednorazowo, tak jak robi to panel webowy.
       onReconnect: _pobierzStatusKiosku,
     )..connect();
   }
@@ -99,8 +72,6 @@ class _KioskQrScreenState extends State<KioskQrScreen> {
     final type = data['type'];
 
     if (type == 'device.updated' || type == 'device.deleted') {
-      // Tablet dostał/stracił przypisaną lokalizację albo zmieniono jego
-      // dane — najprościej i najpewniej dociągnąć pełny stan z REST.
       _pobierzStatusKiosku();
       return;
     }
@@ -121,8 +92,6 @@ class _KioskQrScreenState extends State<KioskQrScreen> {
     }
 
     if (type == 'location.updated') {
-      // Operator wstrzymał/wznowił zapisy (albo zmieniono nazwę lokalizacji)
-      // — bez potrzeby pełnego REST refetchu, payload ma już cały obiekt.
       final location = data['location'] as Map<String, dynamic>?;
       if (location == null || !mounted || location['id'] != _locationId) return;
       setState(() {
@@ -160,9 +129,6 @@ class _KioskQrScreenState extends State<KioskQrScreen> {
           _errorMessage = null;
         });
 
-        // Dopasuj subskrypcję gniazda do aktualnie znanej lokalizacji —
-        // kluczowe, gdy tablet dostał lokalizację PO nawiązaniu połączenia WS
-        // (inaczej `ticket.updated` nigdy by do niego nie dotarło).
         if (_tabletId != null) {
           _socketService?.resubscribe([
             'tablet:$_tabletId',
@@ -174,18 +140,11 @@ class _KioskQrScreenState extends State<KioskQrScreen> {
         _timerOdswiezania = Timer(_fallbackResyncInterval, _pobierzStatusKiosku);
         _synchronizujKodZapisu();
       } else if (response.statusCode == 401 || response.statusCode == 403) {
-        // Token nieznany serwerowi (zresetowany albo tablet usunięty) — to
-        // JEDYNY przypadek, w którym zapominamy zapisany token. Samo
-        // wyłączenie tabletu (is_active=false) zwraca 200, nie 401 — patrz
-        // _budujZawartosc.
         await _wrocDoLogowania(
           'Token urządzenia jest nieprawidłowy. Wprowadź token ponownie.',
         );
         return;
       } else if (response.statusCode == 409) {
-        // Token jest znany, ale przypisany do INNEGO urządzenia (reguła
-        // "jeden token = jeden tablet") — to urządzenie nie może go używać,
-        // dopóki admin nie zresetuje parowania i nie wygeneruje nowego tokenu.
         await _wrocDoLogowania(
           'Ten token jest już używany przez inne urządzenie. Poproś administratora o nowy token parowania.',
         );
@@ -198,9 +157,6 @@ class _KioskQrScreenState extends State<KioskQrScreen> {
     }
   }
 
-  /// Zamyka tryb kiosku i wraca do ekranu ręcznego parowania z komunikatem.
-  /// Zapomina TYLKO zapisany pairing_token — `device_id` zostaje (identyfikuje
-  /// to samo fizyczne urządzenie na potrzeby przyszłego, poprawnego tokenu).
   Future<void> _wrocDoLogowania(String komunikat) async {
     _timerOdswiezania?.cancel();
     _signupCodeTimer?.cancel();
@@ -223,10 +179,6 @@ class _KioskQrScreenState extends State<KioskQrScreen> {
     _timerOdswiezania = Timer(const Duration(seconds: 5), _pobierzStatusKiosku);
   }
 
-  /// Uruchamia albo zatrzymuje cykl odświeżania kodu zapisu, w zależności od
-  /// tego, czy kiosk aktualnie POWINIEN go pokazywać (ma lokalizację, jest
-  /// włączony i zapisy nie są wstrzymane). Wołać po każdej zmianie tych
-  /// warunków — REST-owej albo z WS.
   bool _pobieranieKoduWToku = false;
 
   void _synchronizujKodZapisu() {
@@ -242,8 +194,6 @@ class _KioskQrScreenState extends State<KioskQrScreen> {
 
   Future<void> _pobierzKodZapisu() async {
     final url = Uri.parse('${ApiConfig.kioskSignupCodeUrl}?tablet_token=${widget.adminToken}&device_id=$_deviceId');
-    // Znacznik "w toku" — zapobiega odpaleniu drugiego, równoległego cyklu
-    // przez _synchronizujKodZapisu, zanim ta odpowiedź zdąży wrócić.
     _pobieranieKoduWToku = true;
     try {
       final response = await http.get(url).timeout(const Duration(seconds: 10));
@@ -259,15 +209,10 @@ class _KioskQrScreenState extends State<KioskQrScreen> {
         return;
       }
 
-      // Błąd (401/409) — warunki mogły się właśnie zmienić (np. operator
-      // wstrzymał zapisy). Spróbuj ponownie tylko jeśli wciąż powinniśmy
-      // pokazywać kod; w przeciwnym razie _synchronizujKodZapisu i tak
-      // zatrzyma ten cykl przy najbliższej zmianie stanu.
       _signupCodeTimer = (_hasLocation && _kioskEnabled && _acceptingNewTickets)
           ? Timer(const Duration(seconds: 5), _pobierzKodZapisu)
           : null;
     } catch (_) {
-      // Brak połączenia — spróbuj ponownie za chwilę.
       _signupCodeTimer = Timer(const Duration(seconds: 5), _pobierzKodZapisu);
     } finally {
       _pobieranieKoduWToku = false;
@@ -279,7 +224,6 @@ class _KioskQrScreenState extends State<KioskQrScreen> {
     _timerOdswiezania?.cancel();
     _signupCodeTimer?.cancel();
     _socketService?.disconnect();
-    // Pozwalamy ekranowi zgasnąć po wyjściu z trybu kiosku
     WakelockPlus.disable();
     super.dispose();
   }
@@ -397,8 +341,6 @@ class _KioskQrScreenState extends State<KioskQrScreen> {
                       ),
               ),
             ] else
-              // Zapisy wstrzymane: świadomie NIE pokazujemy litery kolejki ani
-              // QR-a — nie chcemy, żeby ktoś mimo wszystko spróbował dołączyć.
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.symmetric(vertical: 36, horizontal: 24),
@@ -433,9 +375,6 @@ class _KioskQrScreenState extends State<KioskQrScreen> {
   }
 }
 
-/// Podświetlony panel "aktualnie obsługiwany" — odwzorowuje sekcję "Teraz
-/// obsługujemy" z kiosku w design systemie: teal tło + pulsujący StatusChip,
-/// albo stonowany pusty stan, gdy nikt nie jest teraz obsługiwany.
 class _NowServingPanel extends StatelessWidget {
   final String? ticketCode;
   const _NowServingPanel({required this.ticketCode});
@@ -475,7 +414,6 @@ class _NowServingPanel extends StatelessWidget {
   }
 }
 
-/// Karta pełnoekranowego komunikatu kiosku (wyłączony admin / brak lokalizacji).
 class _KioskStatusCard extends StatelessWidget {
   final IconData icon;
   final Color iconBg;

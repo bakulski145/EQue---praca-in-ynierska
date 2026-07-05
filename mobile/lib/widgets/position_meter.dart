@@ -2,9 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../theme/eque_theme.dart';
 
-/// eQue PositionMeter — widok pacjenta "jesteś N. w kolejce": duża tabularna
-/// pozycja + segmentowany pasek postępu. `position == null` renderuje pasek
-/// pełny/statyczny (np. "jesteś następny, czekasz na wezwanie").
 class PositionMeter extends StatelessWidget {
   final int position;
   final int total;

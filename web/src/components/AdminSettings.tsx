@@ -29,8 +29,6 @@ function CheckIcon() {
   );
 }
 
-/* literal preview colors — always depict each theme's real look,
-   independent of which theme is currently active */
 function ThemeSwatch({ variant }: { variant: Theme }) {
   const dark = variant === 'dark';
   const page = dark ? '#0F1417' : '#F6F8F9';

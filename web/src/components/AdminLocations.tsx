@@ -6,7 +6,6 @@ import type { LocationResponse, TabletResponse, UserResponse, RefreshHandle } fr
 import { confirmDialog, alertDialog } from '../lib/dialog-actions';
 import Select from './ui/Select';
 
-/* ── helpers ─────────────────────────────────────────── */
 
 function pluralOsoby(n: number) {
   if (n === 1) return 'osoba';
@@ -16,7 +15,6 @@ function pluralOsoby(n: number) {
   return 'osób';
 }
 
-/* ── sub-components ───────────────────────────────────── */
 
 function LocationIcon({ size = 22 }: { size?: number }) {
   return (
@@ -26,7 +24,6 @@ function LocationIcon({ size = 22 }: { size?: number }) {
   );
 }
 
-/** Odznaka z literą kodu kolejki lokalizacji (np. "A") — to ją klient wpisuje w apce mobilnej. */
 function QueueCodeBadge({ code }: { code: string }) {
   return (
     <span title="Kod kolejki dla klientów" style={{
@@ -82,7 +79,6 @@ function Switch({ checked, onChange, ariaLabel }: { checked: boolean; onChange: 
   );
 }
 
-/* ── slide panel (matches AdminUsers / AdminDashboard) ── */
 
 function SlidePanel({ title, open, onClose, children, footer }: {
   title: string; open: boolean; onClose: () => void;
@@ -126,7 +122,6 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-/* ── shared styles ─────────────────────────────────────── */
 
 const btnPrimary: React.CSSProperties = {
   background: 'var(--brand)', color: 'var(--on-brand)', border: 'none',
@@ -151,7 +146,6 @@ const labelStyle: React.CSSProperties = {
   color: 'var(--text-body)',
 };
 
-/* ── local edit-draft shape ────────────────────────────── */
 
 interface LocationDraft {
   id: number;
@@ -163,7 +157,6 @@ interface LocationDraft {
   user_ids: string[];
 }
 
-/* ── main component ───────────────────────────────────── */
 
 const AdminLocations = forwardRef<RefreshHandle, { addOpen?: boolean; onAddClose?: () => void; searchQuery?: string }>(function AdminLocations({ addOpen = false, onAddClose, searchQuery = '' }, ref) {
   const [locations, setLocations] = useState<LocationResponse[]>([]);
@@ -196,7 +189,6 @@ const AdminLocations = forwardRef<RefreshHandle, { addOpen?: boolean; onAddClose
     return () => clearTimeout(initial);
   }, [refetch]);
 
-  /* Live-update z WebSocketa (location.* i device.*) — patrz API_SPEC.md sekcja 5. */
   useEffect(() => {
     const offLocCreated = ws.on('location.created', msg => {
       const location = msg.location as LocationResponse;
@@ -288,7 +280,7 @@ const AdminLocations = forwardRef<RefreshHandle, { addOpen?: boolean; onAddClose
       await api.del(`/admin/locations/${editingLocation.id}`);
       setLocations(prev => prev.filter(l => l.id !== editingLocation.id));
       setEditingLocation(null);
-      refetch(); // odśwież tablety — jeden mógł zostać odłączony kaskadowo
+      refetch();
     } catch (err) {
       alertDialog(err instanceof ApiError ? err.message : 'Nie udało się usunąć lokalizacji.', { title: 'Błąd', tone: 'danger' });
     }
@@ -305,7 +297,7 @@ const AdminLocations = forwardRef<RefreshHandle, { addOpen?: boolean; onAddClose
       });
       setLocations(prev => prev.map(l => l.id === updated.id ? updated : l));
       setEditingLocation(null);
-      refetch(); // odśwież tablety — poprzedni najemca mógł zostać odłączony
+      refetch();
     } catch (err) {
       alertDialog(err instanceof ApiError ? err.message : 'Nie udało się zapisać zmian.', { title: 'Błąd', tone: 'danger' });
     }
@@ -318,11 +310,10 @@ const AdminLocations = forwardRef<RefreshHandle, { addOpen?: boolean; onAddClose
     l => l.name
   );
 
-  /* ── render ────────────────────────────────────────── */
   return (
     <div>
       <div style={{ background: 'var(--surface-card)', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-sm)', border: '1px solid var(--border-subtle)', overflow: 'hidden' }}>
-        {/* Table header */}
+        {}
         <div style={{
           display: 'grid', gridTemplateColumns: '2fr 1.3fr 1.3fr 1fr 96px',
           gap: 12, padding: '12px 24px',
@@ -354,7 +345,7 @@ const AdminLocations = forwardRef<RefreshHandle, { addOpen?: boolean; onAddClose
                 transition: 'background var(--dur-base) var(--ease-out)',
               }}
             >
-              {/* Icon + name + description */}
+              {}
               <div style={{ display: 'flex', alignItems: 'center', gap: 14, minWidth: 0 }}>
                 <div style={{
                   width: 44, height: 44, borderRadius: 'var(--radius-md)', flexShrink: 0,
@@ -377,7 +368,7 @@ const AdminLocations = forwardRef<RefreshHandle, { addOpen?: boolean; onAddClose
                 </div>
               </div>
 
-              {/* Tablet */}
+              {}
               <div style={{ display: 'flex', alignItems: 'center', gap: 7, minWidth: 0 }}>
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={tablet ? 'var(--text-muted)' : 'var(--text-faint)'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
                   <rect x="4" y="2" width="16" height="20" rx="2" /><line x1="12" y1="18" x2="12.01" y2="18" />
@@ -392,7 +383,7 @@ const AdminLocations = forwardRef<RefreshHandle, { addOpen?: boolean; onAddClose
                 </span>
               </div>
 
-              {/* Users */}
+              {}
               <div style={{ display: 'flex', alignItems: 'center', gap: 7, color: 'var(--text-muted)' }}>
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
                   <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" /><circle cx="9" cy="7" r="4" />
@@ -401,14 +392,14 @@ const AdminLocations = forwardRef<RefreshHandle, { addOpen?: boolean; onAddClose
                 <span style={{ fontFamily: 'var(--font-ui)', fontSize: 13.5 }}>{userCount} {pluralOsoby(userCount)}</span>
               </div>
 
-              {/* Status */}
+              {}
               <div>
                 <StatusBadge tone={location.is_active ? 'success' : 'neutral'}>
                   {location.is_active ? 'Aktywna' : 'Dezaktywowana'}
                 </StatusBadge>
               </div>
 
-              {/* Actions: deactivate switch + edit */}
+              {}
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6 }}>
                 <Switch
                   checked={location.is_active}
@@ -438,7 +429,7 @@ const AdminLocations = forwardRef<RefreshHandle, { addOpen?: boolean; onAddClose
         })}
       </div>
 
-      {/* ── Add panel ─────────────────────────────────── */}
+      {}
       <SlidePanel title="Nowa lokalizacja" open={addOpen} onClose={() => onAddClose?.()} footer={
         <>
           <button style={btnPrimary} onClick={handleAddLocation}
@@ -464,7 +455,7 @@ const AdminLocations = forwardRef<RefreshHandle, { addOpen?: boolean; onAddClose
         </div>
       </SlidePanel>
 
-      {/* ── Edit panel ────────────────────────────────── */}
+      {}
       <SlidePanel title="Edytuj lokalizację" open={!!editingLocation} onClose={() => setEditingLocation(null)} footer={
         <>
           <button style={btnDanger} onClick={handleDeleteLocation}>Usuń</button>
@@ -477,7 +468,7 @@ const AdminLocations = forwardRef<RefreshHandle, { addOpen?: boolean; onAddClose
       }>
         {editingLocation && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-            {/* Preview */}
+            {}
             <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '16px 18px', background: 'var(--surface-sunken)', borderRadius: 'var(--radius-md)' }}>
               <div style={{
                 width: 48, height: 48, borderRadius: 'var(--radius-md)', flexShrink: 0,

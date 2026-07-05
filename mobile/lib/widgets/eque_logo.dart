@@ -2,12 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../theme/eque_theme.dart';
 
-/// Znak eQue: kolejka trzech przybliżających się kropek + "ptaszek" strzałki.
-/// Odwzorowuje 1:1 `assets/logo-mark.svg` z design systemu (i `web/public/logo-mark.svg`),
-/// namalowany wektorowo — bez ładowania pliku SVG.
 class EQueLogoMark extends StatelessWidget {
   final double size;
-  /// Wersja na ciemnym/kolorowym tle: przezroczyste białe tło zamiast pełnego tealu.
   final bool inverse;
 
   const EQueLogoMark({super.key, this.size = 36, this.inverse = false});
@@ -57,8 +53,6 @@ class _EQueLogoPainter extends CustomPainter {
   bool shouldRepaint(covariant _EQueLogoPainter oldDelegate) => oldDelegate.inverse != inverse;
 }
 
-/// Znak + wordmark "eQue" w jednym rzędzie — odpowiednik `Brand` z UI kitów
-/// design systemu. Używać w nagłówkach ekranów zamiast gołego tekstu "eQue".
 class EQueBrand extends StatelessWidget {
   final double markSize;
   final double fontSize;

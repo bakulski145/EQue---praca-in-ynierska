@@ -7,11 +7,6 @@ const RECONNECT_MAX_MS = 15000;
 export type WsMessage = { type: string; topic?: string; [key: string]: unknown };
 type Handler = (message: WsMessage) => void;
 
-/**
- * Jeden długo żyjący WebSocket na cały panel (zamiast osobnych połączeń per
- * widok) — zgodnie z API_SPEC.md sekcja 5. Auto-reconnect z backoffem,
- * ponowna subskrypcja topików po każdym połączeniu.
- */
 class WsClient {
   private socket: WebSocket | null = null;
   private topics: string[] = [];
@@ -45,21 +40,12 @@ class WsClient {
     this.socket = null;
   }
 
-  /** Subskrybuje eventy danego typu (np. "device.updated"). Zwraca funkcję odsubskrybowującą. */
   on(type: string, handler: Handler): () => void {
     if (!this.handlers.has(type)) this.handlers.set(type, new Set());
     this.handlers.get(type)!.add(handler);
     return () => this.handlers.get(type)?.delete(handler);
   }
 
-  /**
-   * Woła handler za każdym razem, gdy gniazdo (po raz pierwszy połączone
-   * wcześniej) łączy się ponownie — czyli mogliśmy przegapić eventy w trakcie
-   * rozłączenia. Zastępuje to pollingowy refetch: zamiast dociągać stan co
-   * 10s "na sztywno", robimy to jednorazowo, dokładnie wtedy, gdy jest to
-   * potrzebne. Nie odpala się przy pierwszym połączeniu (initial fetch
-   * komponentu już to załatwia).
-   */
   onReconnect(handler: () => void): () => void {
     this.reconnectHandlers.add(handler);
     return () => this.reconnectHandlers.delete(handler);

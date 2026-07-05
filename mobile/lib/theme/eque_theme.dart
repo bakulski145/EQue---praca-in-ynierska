@@ -1,14 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-/// eQue design tokens — przeniesione 1:1 z design systemu (Claude Design,
-/// projekt "eQue Design System") i z `web/src/index.css`, żeby apka mobilna
-/// wyglądała spójnie z panelem webowym. Nie zgaduj kolorów/rozmiarów w
-/// ekranach — sięgaj po stałe stąd.
 class EQueColors {
   EQueColors._();
 
-  // ---- Brand: teal ----
   static const teal50 = Color(0xFFECFDFA);
   static const teal100 = Color(0xFFCFF8F1);
   static const teal200 = Color(0xFF9CEEE2);
@@ -17,7 +12,6 @@ class EQueColors {
   static const teal600 = Color(0xFF0E9B92);
   static const teal700 = Color(0xFF0C7B74);
 
-  // ---- Neutral: cool slate ----
   static const slate0 = Color(0xFFFFFFFF);
   static const slate50 = Color(0xFFF6F8F9);
   static const slate100 = Color(0xFFEDF1F3);
@@ -30,14 +24,12 @@ class EQueColors {
   static const slate800 = Color(0xFF232B30);
   static const slate900 = Color(0xFF151B1F);
 
-  // ---- Accent: amber (waiting / attention) ----
   static const amber50 = Color(0xFFFFF8EB);
   static const amber100 = Color(0xFFFDEDC8);
   static const amber500 = Color(0xFFF2A60C);
   static const amber600 = Color(0xFFD98906);
   static const amber700 = Color(0xFFA9650A);
 
-  // ---- Semantic raw ----
   static const green50 = Color(0xFFECFDF3);
   static const green100 = Color(0xFFD1FADF);
   static const green500 = Color(0xFF16A34A);
@@ -50,7 +42,6 @@ class EQueColors {
   static const red600 = Color(0xFFCE363B);
   static const red700 = Color(0xFFA52A2E);
 
-  // ---- Semantic aliases ----
   static const brand = teal500;
   static const brandHover = teal600;
   static const brandActive = teal700;
@@ -73,12 +64,11 @@ class EQueColors {
   static const borderDefault = slate300;
   static const focusRing = teal400;
 
-  // ---- Queue status (product core) ----
   static const queueWaiting = amber600;
   static const queueWaitingBg = amber50;
   static const queueWaitingBorder = amber100;
 
-  static const queueServing = teal600; // "teraz obsługiwany" / "twoja kolej"
+  static const queueServing = teal600;
   static const queueServingBg = teal50;
   static const queueServingBorder = teal200;
 
@@ -91,7 +81,6 @@ class EQueColors {
   static const queueSkippedBorder = red100;
 }
 
-/// Promienie zaokrągleń — 8px-owa siatka, przyjazne/duże promienie.
 class EQueRadii {
   EQueRadii._();
   static const xs = 4.0;
@@ -103,7 +92,6 @@ class EQueRadii {
   static const pill = 999.0;
 }
 
-/// Odstępy — siatka 4px / rytm 8px.
 class EQueSpace {
   EQueSpace._();
   static const s1 = 4.0;
@@ -117,8 +105,6 @@ class EQueSpace {
   static const s12 = 48.0;
 }
 
-/// Miękkie, lekko rozproszone cienie tonowane slate — karty unoszą się
-/// delikatnie, nigdy ciężko.
 class EQueShadows {
   EQueShadows._();
   static const sm = [
@@ -139,8 +125,6 @@ class EQueShadows {
   ];
 }
 
-/// Buduje `ThemeData` całej aplikacji — Space Grotesk do display/ticketów,
-/// Manrope do UI/treści, jak w `tokens/typography.css` design systemu.
 ThemeData buildEQueTheme() {
   final base = ThemeData(useMaterial3: true, brightness: Brightness.light);
   final displayFont = GoogleFonts.spaceGroteskTextTheme(base.textTheme);

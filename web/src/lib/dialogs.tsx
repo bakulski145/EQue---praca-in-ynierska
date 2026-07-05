@@ -2,7 +2,6 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { setDialogDispatcher, type DialogRequest } from './dialog-actions';
 
-/* ── ikony ─────────────────────────────────────────────── */
 
 function WarnIcon() {
   return (
@@ -21,7 +20,6 @@ function InfoIcon() {
   );
 }
 
-/* ── style ─────────────────────────────────────────────── */
 
 const btnBase: React.CSSProperties = {
   borderRadius: 'var(--radius-md)', padding: '10px 20px',
@@ -39,7 +37,6 @@ const btnDangerSolid: React.CSSProperties = {
   ...btnBase, background: 'var(--red-500)', color: '#fff', border: 'none',
 };
 
-/** Mont raz w drzewie aplikacji (np. w App.tsx) — renderuje aktualnie zgłoszony dialog. */
 export function DialogHost() {
   const [pending, setPending] = useState<DialogRequest | null>(null);
   const [visible, setVisible] = useState(false);

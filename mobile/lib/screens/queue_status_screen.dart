@@ -16,10 +16,6 @@ import '../widgets/ticket_code.dart';
 
 class QueueStatusScreen extends StatefulWidget {
   final String scannedToken;
-  // true = scannedToken to już istniejący kod BILETU (powrót z ekranu głównego
-  // po odświeżeniu apki) — wtedy NIE wołamy /queue/join drugi raz (to by
-  // utworzyło duplikat biletu), tylko dociągamy stan istniejącego biletu.
-  // false (domyślnie) = scannedToken to KOD ZAPISU (4 cyfry z ekranu kiosku) do dołączenia.
   final bool resumeExisting;
 
   const QueueStatusScreen({super.key, required this.scannedToken, this.resumeExisting = false});
@@ -36,9 +32,6 @@ class _QueueStatusScreenState extends State<QueueStatusScreen> {
   int _osobyPrzedNami = 0;
   int _poczatkoweOsoby = 0;
   int _szacowanyCzasMinuty = 0;
-  // Prawdziwe "twoja kolej" następuje WYŁĄCZNIE po evencie YOUR_TURN, czyli
-  // gdy operator w panelu webowym naciśnie "Wezwij" — samo osiągnięcie
-  // pozycji 0 w kolejce (bycie następnym w kolejności) to NIE to samo.
   bool _czyWezwano = false;
 
   bool _isLoading = true;
@@ -102,8 +95,6 @@ class _QueueStatusScreenState extends State<QueueStatusScreen> {
     }
   }
 
-  /// Wznawia PODGLĄD istniejącego biletu (np. po odświeżeniu apki) — dociąga
-  /// jego aktualny stan przez REST zamiast dołączać do kolejki po raz drugi.
   Future<void> _wznowIstniejacyBilet() async {
     _prawdziwyNumerBiletu = widget.scannedToken;
     final ok = await _odswiezStanBiletu(pokazBladPolaczenia: true);
@@ -125,13 +116,6 @@ class _QueueStatusScreenState extends State<QueueStatusScreen> {
     await prefs.setString('aktywny_bilet', kod);
   }
 
-  /// Publiczny, bezstanowy odczyt aktualnego stanu biletu (GET
-  /// /queue/ticket/{code}) — jedyne autorytatywne źródło prawdy, wołane przy
-  /// starcie ekranu ORAZ przy każdym (re)połączeniu WS. Bez tego jednorazowy
-  /// event YOUR_TURN/QUEUE_UPDATE przegapiony w złym momencie (gniazdo padło
-  /// tuż przed wezwaniem, albo dopiero się łączyło) zostawiałby pacjenta na
-  /// zawsze z nieaktualnym stanem — WS nie ma pamięci ani powtórek.
-  /// Zwraca false, jeśli bilet już nie istnieje / jest w stanie końcowym.
   Future<bool> _odswiezStanBiletu({bool pokazBladPolaczenia = false}) async {
     if (_prawdziwyNumerBiletu == null) return false;
     final url = Uri.parse('${ApiConfig.baseUrl}/api/v1/queue/ticket/$_prawdziwyNumerBiletu');
@@ -200,9 +184,6 @@ class _QueueStatusScreenState extends State<QueueStatusScreen> {
     _socketService = QueueSocketService(
       ticketCode: _prawdziwyNumerBiletu!,
       onEvent: _obsluzZdarzenieWs,
-      // Domyka wyścig: nawet gdyby serwer wysłał YOUR_TURN zanim gniazdo
-      // zdążyło się podłączyć/zasubskrybować, ten fetch i tak dociągnie
-      // prawdziwy stan zaraz po (re)połączeniu.
       onOpen: () => _odswiezStanBiletu(),
     )..connect();
   }
@@ -216,17 +197,12 @@ class _QueueStatusScreenState extends State<QueueStatusScreen> {
         final int noweOsoby = data['queue_position'] ?? _osobyPrzedNami;
         _szacowanyCzasMinuty = data['estimated_wait_time_minutes'] ?? _szacowanyCzasMinuty;
 
-        // To tylko przesunięcie w kolejce (ktoś przed nami został
-        // obsłużony) — NIE oznacza wezwania, więc nigdy nie ustawiamy tu
-        // _czyWezwano. Nawet przy pozycji 0 czekamy na osobny YOUR_TURN.
         if (noweOsoby < _osobyPrzedNami) {
           _pokazPowiadomienie(noweOsoby);
         }
         _osobyPrzedNami = noweOsoby;
 
       } else if (event == 'YOUR_TURN') {
-        // Jedyny moment, w którym pokazujemy "TWOJA KOLEJ" — operator
-        // jawnie nacisnął "Wezwij" przy naszym bilecie w panelu webowym.
         _czyWezwano = true;
         _osobyPrzedNami = 0;
         _szacowanyCzasMinuty = 0;
@@ -274,7 +250,6 @@ class _QueueStatusScreenState extends State<QueueStatusScreen> {
     }
   }
 
-  // Wywoływane, gdy pacjent rezygnuje z wizyty
   Future<void> _anulujBiletNaSerwerze() async {
     if (_prawdziwyNumerBiletu == null) return;
     try {
@@ -284,7 +259,6 @@ class _QueueStatusScreenState extends State<QueueStatusScreen> {
         body: jsonEncode({'ticket_code': _prawdziwyNumerBiletu}),
       ).timeout(const Duration(seconds: 5));
     } catch (_) {
-      // Ignorujemy błąd sieci przy zamykaniu
     }
   }
 
@@ -303,14 +277,11 @@ class _QueueStatusScreenState extends State<QueueStatusScreen> {
             ElevatedButton(
               style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
               onPressed: () async {
-                // 1. Wyczyszczenie pamięci lokalnej
                 final prefs = await SharedPreferences.getInstance();
                 await prefs.remove('aktywny_bilet');
 
-                // 2. Zgłoszenie rezygnacji do backendu
                 await _anulujBiletNaSerwerze();
 
-                // 3. Rozłączenie gniazda i wyłączenie powiadomień
                 _socketService?.disconnect();
                 flutterLocalNotificationsPlugin.cancelAll();
 
@@ -384,8 +355,6 @@ class _QueueStatusScreenState extends State<QueueStatusScreen> {
       );
     }
 
-    // "Twoja kolej" to jedyny moment z pełnoekranowym, teal tłem — sygnalizuje
-    // "na żywo, działaj teraz", jak `YourTurnScreen` w design systemie.
     if (_czyWezwano) return _buildTwojaKolej(context);
 
     final tekstCzasu = "~$_szacowanyCzasMinuty min";
