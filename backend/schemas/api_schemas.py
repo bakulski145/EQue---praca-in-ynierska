@@ -43,6 +43,7 @@ class JoinQueueResponse(BaseModel):
     queue_position: int
     location_id: int
     estimated_wait_time_minutes: int
+    total_in_queue: int | None = None
 
 class PatientCancelRequest(BaseModel):
     """Body POST /queue/cancel — pacjent samodzielnie anuluje swój bilet."""
@@ -60,7 +61,7 @@ class TicketStatusResponse(BaseModel):
     status: str
     queue_position: int
     estimated_wait_time_minutes: int
-
+    total_in_queue: int | None = None
 
 class TicketResponse(BaseModel):
     """Pełna odpowiedź dla pojedynczego biletu."""

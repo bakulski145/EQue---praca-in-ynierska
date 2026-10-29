@@ -23,6 +23,7 @@ services:
       - "6379:6379"
 
   backend:
+    platform: linux/amd64
     build:
       context: ./backend
     container_name: eque_backend

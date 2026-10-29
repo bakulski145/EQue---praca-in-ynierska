@@ -759,7 +759,10 @@ async def join_queue(payload: JoinQueueRequest, request: Request, db: Session = 
         payload={"ticket": _ticket_to_response(ticket).model_dump()},
     )
 
+    await _broadcast_queue_updates(request.app.state.redis, location_id, db)
+
     estimated_wait_time_minutes = queue_position * 3
+    total_in_queue = queue_position +1
 
     return JoinQueueResponse(
         ticket_id=str(ticket.id),
@@ -767,6 +770,7 @@ async def join_queue(payload: JoinQueueRequest, request: Request, db: Session = 
         queue_position=queue_position,
         location_id=ticket.location_id,
         estimated_wait_time_minutes=estimated_wait_time_minutes,
+        total_in_queue=total_in_queue
     )
 
 
@@ -861,12 +865,15 @@ async def _broadcast_queue_updates(redis_client, location_id: int, db: Session) 
         .all()
     )
 
+    total_in_queue = len(waiting_tickets)
+
     for idx, t in enumerate(waiting_tickets):
         update_msg = {
             "topic": f"guest:{t.ticket_code}",
             "event": "QUEUE_UPDATE",
             "queue_position": idx,
             "estimated_wait_time_minutes": idx * 3,
+            "total_in_queue": total_in_queue,
         }
         await redis_client.publish(REDIS_CHANNEL, json.dumps(update_msg, default=str))
 
