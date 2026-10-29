@@ -20,7 +20,7 @@ class EQueCard extends StatelessWidget {
     final content = Container(
       padding: padding,
       decoration: BoxDecoration(
-        color: EQueColors.surfaceCard,
+        color: Theme.of(context).cardColor,
         borderRadius: BorderRadius.circular(radius),
         border: Border.all(color: EQueColors.borderSubtle),
         boxShadow: EQueShadows.sm,

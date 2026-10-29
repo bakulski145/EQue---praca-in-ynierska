@@ -11,6 +11,7 @@ import 'map_screen.dart';
 import 'kiosk_login_screen.dart';
 import 'kiosk_qr_screen.dart';
 import 'queue_status_screen.dart';
+import 'settings_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -64,7 +65,25 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     return Scaffold(
-      appBar: AppBar(title: const EQueBrand()),
+      appBar: AppBar(
+        title: EQueBrand(
+          markSize: 26,
+          fontSize: 18,
+          inverse: Theme.of(context).brightness == Brightness.dark,
+        ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.settings),
+            tooltip: 'Ustawienia',
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const SettingsScreen()),
+              );
+            },
+          ),
+        ],
+        ),
       body: Center(
         child: Padding(
           padding: const EdgeInsets.all(24.0),
@@ -181,6 +200,9 @@ class _MenuButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+
+final isDark = Theme.of(context).brightness == Brightness.dark;
+
     return EQueCard(
       padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
       onTap: onTap,
@@ -199,9 +221,9 @@ class _MenuButton extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text(title, style: GoogleFonts.manrope(fontWeight: FontWeight.w700, fontSize: 15.5, color: EQueColors.textStrong)),
+                Text(title, style: GoogleFonts.manrope(fontWeight: FontWeight.w700, fontSize: 15.5, color: isDark ? Colors.white : EQueColors.textStrong)),
                 const SizedBox(height: 2),
-                Text(subtitle, style: GoogleFonts.manrope(fontSize: 13, color: EQueColors.textMuted)),
+                Text(subtitle, style: GoogleFonts.manrope(fontSize: 13, color: isDark ? Colors.white70 : EQueColors.textMuted)),
               ],
             ),
           ),

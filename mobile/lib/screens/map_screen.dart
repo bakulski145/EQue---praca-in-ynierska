@@ -7,6 +7,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../theme/eque_theme.dart';
 import '../widgets/eque_card.dart';
 import '../widgets/eque_logo.dart';
+import 'settings_screen.dart';
 
 class Placowka {
   final String id;
@@ -89,7 +90,21 @@ class _MapScreenState extends State<MapScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const EQueBrand(markSize: 26, fontSize: 18)),
+      appBar: AppBar(
+        title: const EQueBrand(markSize: 26, fontSize: 18),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.settings),
+            tooltip: 'Ustawienia',
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const SettingsScreen()),
+              );
+            },
+          ),
+        ],
+        ),
       body: _budujCialoEkranu(),
     );
   }

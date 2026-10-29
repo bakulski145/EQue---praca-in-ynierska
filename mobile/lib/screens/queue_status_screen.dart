@@ -13,6 +13,7 @@ import '../widgets/eque_card.dart';
 import '../widgets/eque_logo.dart';
 import '../widgets/position_meter.dart';
 import '../widgets/ticket_code.dart';
+import 'settings_screen.dart';
 
 class QueueStatusScreen extends StatefulWidget {
   final String scannedToken;
@@ -64,7 +65,7 @@ class _QueueStatusScreenState extends State<QueueStatusScreen> {
         setState(() {
           _prawdziwyNumerBiletu = data['ticket_code'];
           _osobyPrzedNami = data['queue_position'] ?? 0;
-          _poczatkoweOsoby = data['queue_position'] ?? 0;
+          _poczatkoweOsoby = data['total_in_queue'] ?? data['queue_position'] ?? 0;
           _szacowanyCzasMinuty = data['estimated_wait_time_minutes'] ?? 0;
           _isLoading = false;
         });
@@ -149,12 +150,12 @@ class _QueueStatusScreenState extends State<QueueStatusScreen> {
       setState(() {
         if (status == 'SERVING') {
           _czyWezwano = true;
-          _osobyPrzedNami = 0;
+          _osobyPrzedNami = 1;
           _szacowanyCzasMinuty = 0;
         } else {
           _osobyPrzedNami = data['queue_position'] ?? _osobyPrzedNami;
           _szacowanyCzasMinuty = data['estimated_wait_time_minutes'] ?? _szacowanyCzasMinuty;
-          if (_poczatkoweOsoby == 0) _poczatkoweOsoby = _osobyPrzedNami;
+          _poczatkoweOsoby = data['total_in_queue'] ?? _poczatkoweOsoby;
         }
       });
       return true;
@@ -194,15 +195,20 @@ class _QueueStatusScreenState extends State<QueueStatusScreen> {
 
     setState(() {
       if (event == 'QUEUE_UPDATE') {
-        final int noweOsoby = data['queue_position'] ?? _osobyPrzedNami;
-        _szacowanyCzasMinuty = data['estimated_wait_time_minutes'] ?? _szacowanyCzasMinuty;
+  final int noweOsoby = data['queue_position'] ?? _osobyPrzedNami;
+  _szacowanyCzasMinuty = data['estimated_wait_time_minutes'] ?? _szacowanyCzasMinuty;
 
-        if (noweOsoby < _osobyPrzedNami) {
-          _pokazPowiadomienie(noweOsoby);
-        }
-        _osobyPrzedNami = noweOsoby;
+  // DODANE: Aktualizuj całkowitą liczbę osób na żywo
+  if (data['total_in_queue'] != null) {
+    _poczatkoweOsoby = data['total_in_queue'];
+  }
 
-      } else if (event == 'YOUR_TURN') {
+  if (noweOsoby < _osobyPrzedNami) {
+    _pokazPowiadomienie(noweOsoby);
+  }
+  _osobyPrzedNami = noweOsoby;
+}
+ else if (event == 'YOUR_TURN') {
         _czyWezwano = true;
         _osobyPrzedNami = 0;
         _szacowanyCzasMinuty = 0;
@@ -360,7 +366,21 @@ class _QueueStatusScreenState extends State<QueueStatusScreen> {
     final tekstCzasu = "~$_szacowanyCzasMinuty min";
 
     return Scaffold(
-      appBar: AppBar(title: const EQueBrand(markSize: 26, fontSize: 18)),
+      appBar: AppBar(
+        title: const EQueBrand(markSize: 26, fontSize: 18),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.settings),
+            tooltip: 'Ustawienia',
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const SettingsScreen())
+              );
+            },
+          )
+        ]
+        ),
       body: Center(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(20.0),
@@ -402,7 +422,7 @@ class _QueueStatusScreenState extends State<QueueStatusScreen> {
                         style: GoogleFonts.manrope(fontSize: 13.5, color: EQueColors.textMuted),
                       ),
                       const SizedBox(height: 20),
-                      PositionMeter(position: _osobyPrzedNami, total: _poczatkoweOsoby, eta: tekstCzasu),
+                      PositionMeter(position: _osobyPrzedNami + 1, total: _poczatkoweOsoby, eta: tekstCzasu),
                     ],
                   ),
                 ),
@@ -438,12 +458,18 @@ class _QueueStatusScreenState extends State<QueueStatusScreen> {
                 child: const Icon(Icons.notifications_active, size: 40, color: Colors.white),
               ),
               const SizedBox(height: 18),
-              Text(
+              FittedBox(
+                fit: BoxFit.scaleDown,
+              child: Text(
                 'TWOJA KOLEJ',
                 style: GoogleFonts.manrope(fontSize: 14, fontWeight: FontWeight.w800, letterSpacing: 1.6, color: Colors.white.withValues(alpha: 0.85)),
               ),
+              ),
               const SizedBox(height: 10),
-              TicketCode(_prawdziwyNumerBiletu ?? '...', tone: TicketCodeTone.onDark, fontSizeOverride: 84),
+              FittedBox(
+                fit: BoxFit.scaleDown,
+              child: TicketCode(_prawdziwyNumerBiletu ?? '...', tone: TicketCodeTone.onDark, fontSizeOverride: 84),
+              ),
               const SizedBox(height: 12),
               Text(
                 'Podejdź do punktu obsługi',

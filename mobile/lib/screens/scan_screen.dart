@@ -3,6 +3,7 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import '../theme/eque_theme.dart';
 import '../widgets/eque_logo.dart';
 import 'queue_status_screen.dart';
+import 'settings_screen.dart';
 
 class ScanScreen extends StatefulWidget {
   const ScanScreen({super.key});
@@ -76,7 +77,21 @@ class _ScanScreenState extends State<ScanScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const EQueBrand(markSize: 26, fontSize: 18)),
+      appBar: AppBar(
+        title: const EQueBrand(markSize: 26, fontSize: 18),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.settings),
+            tooltip: 'Ustawienia',
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const SettingsScreen()),
+              );
+            },
+          ),
+        ],
+        ),
       body: Column(
         children: [
           Expanded(
