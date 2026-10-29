@@ -86,10 +86,10 @@ class _HomeScreenState extends State<HomeScreen> {
         ],
         ),
       body: Center(
-        child: Padding(
+        child: SingleChildScrollView(
           padding: const EdgeInsets.all(24.0),
           child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
+            mainAxisSize: MainAxisSize.min,
             children: [
               GestureDetector(
                 onLongPress: () {
