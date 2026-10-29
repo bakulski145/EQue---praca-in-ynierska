@@ -58,6 +58,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     if (_sprawdzanieKiosku) {
       return const Scaffold(
         body: Center(child: CircularProgressIndicator()),
@@ -142,7 +143,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Text('Masz aktywny bilet', style: GoogleFonts.manrope(fontWeight: FontWeight.w700, fontSize: 15, color: EQueColors.textStrong)),
+                            Text('Masz aktywny bilet', style: GoogleFonts.manrope(fontWeight: FontWeight.w700, fontSize: 15, color: isDark ? Colors.white : EQueColors.textStrong)),
                             const SizedBox(height: 2),
                             Text('Kliknij, aby wrócić do podglądu kolejki.', style: GoogleFonts.manrope(fontSize: 12.5, color: EQueColors.textMuted)),
                           ],

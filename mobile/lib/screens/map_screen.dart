@@ -91,7 +91,9 @@ class _MapScreenState extends State<MapScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const EQueBrand(markSize: 26, fontSize: 18),
+        title: EQueBrand(markSize: 26, fontSize: 18,
+        inverse: Theme.of(context).brightness == Brightness.dark
+        ),
         actions: [
           IconButton(
             icon: const Icon(Icons.settings),
@@ -110,6 +112,7 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   Widget _budujCialoEkranu() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     if (_isLoading) {
       return Center(
         child: Column(
@@ -207,7 +210,7 @@ class _MapScreenState extends State<MapScreen> {
                       children: [
                         Text(
                           _wybranaPlacowka!.name,
-                          style: GoogleFonts.manrope(fontWeight: FontWeight.w700, fontSize: 15.5, color: EQueColors.textStrong),
+                          style: GoogleFonts.manrope(fontWeight: FontWeight.w700, fontSize: 15.5, color: isDark ? Colors.white : EQueColors.textStrong),
                         ),
                         const SizedBox(height: 2),
                         Text(

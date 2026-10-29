@@ -78,7 +78,9 @@ class _ScanScreenState extends State<ScanScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const EQueBrand(markSize: 26, fontSize: 18),
+        title: EQueBrand(markSize: 26, fontSize: 18,
+        inverse: Theme.of(context).brightness == Brightness.dark
+        ),
         actions: [
           IconButton(
             icon: const Icon(Icons.settings),
