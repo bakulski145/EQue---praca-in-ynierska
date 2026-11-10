@@ -10,6 +10,8 @@ final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
 // Globalny przełącznik motywu
 final ValueNotifier<ThemeMode> themeNotifier = ValueNotifier(ThemeMode.system);
 
+final ValueNotifier<bool> hapticsNotifier = ValueNotifier(true);
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 

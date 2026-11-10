@@ -14,6 +14,7 @@ import '../widgets/eque_logo.dart';
 import '../widgets/position_meter.dart';
 import '../widgets/ticket_code.dart';
 import 'settings_screen.dart';
+import 'package:flutter/services.dart';
 
 class QueueStatusScreen extends StatefulWidget {
   final String scannedToken;
@@ -204,16 +205,23 @@ class _QueueStatusScreenState extends State<QueueStatusScreen> {
   }
 
   if (noweOsoby < _osobyPrzedNami) {
+    if (hapticsNotifier.value) {
+      HapticFeedback.mediumImpact(); // Średnia wibracja informująca o ruchu
+    }
     _pokazPowiadomienie(noweOsoby);
   }
   _osobyPrzedNami = noweOsoby;
 }
  else if (event == 'YOUR_TURN') {
-        _czyWezwano = true;
-        _osobyPrzedNami = 0;
-        _szacowanyCzasMinuty = 0;
-        _pokazPowiadomienie(0);
-      }
+    if (hapticsNotifier.value) {
+      HapticFeedback.heavyImpact(); // Mocne uderzenie
+      Future.delayed(const Duration(milliseconds: 300), () => HapticFeedback.heavyImpact());
+    }
+    _czyWezwano = true;
+    _osobyPrzedNami = 0;
+    _szacowanyCzasMinuty = 0;
+    _pokazPowiadomienie(0);
+  }
     });
 
     if (event == 'YOUR_TURN') {
