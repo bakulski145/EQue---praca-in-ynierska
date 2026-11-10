@@ -392,6 +392,11 @@ class _QueueStatusScreenState extends State<QueueStatusScreen> {
       body: Center(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(20.0),
+          child: Semantics(
+            excludeSemantics: true, // Ukrywa wizualne teksty przed czytnikiem
+            label: _czyWezwano 
+                ? 'To twoja kolej! Podejdź do okienka z biletem ${_prawdziwyNumerBiletu ?? ''}.'
+                : 'Twój bilet to ${_prawdziwyNumerBiletu ?? ''}. Przed tobą jest $_osobyPrzedNami osób. Szacowany czas oczekiwania to $_szacowanyCzasMinuty minut.',
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 420),
             child: Column(
@@ -442,6 +447,7 @@ class _QueueStatusScreenState extends State<QueueStatusScreen> {
                 ),
               ],
             ),
+          ),
           ),
         ),
       ),

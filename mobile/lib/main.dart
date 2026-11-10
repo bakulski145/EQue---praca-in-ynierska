@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'screens/home_screen.dart';
 import 'theme/eque_theme.dart'; // Zostawiamy import, może się przydać do kolorów
+import 'package:flutter_localizations/flutter_localizations.dart';
 
 final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
     FlutterLocalNotificationsPlugin();
@@ -38,9 +39,17 @@ class MyApp extends StatelessWidget {
       builder: (context, currentMode, child) {
         return MaterialApp(
           title: 'eQue',
-          
-          // Używamy domyślnych motywów Fluttera (później możemy je ostylować Twoimi kolorami)
-          theme: ThemeData.light().copyWith(
+          locale: const Locale('pl', 'PL'), // Wymusza polski język jako główny
+      supportedLocales: const [
+        Locale('pl', 'PL'), 
+      ],
+      localizationsDelegates: const [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
+      // ------------------------------------
+      theme: ThemeData.light().copyWith(
             colorScheme: const ColorScheme.light(
               primary: EQueColors.brand,
               secondary: EQueColors.brand,

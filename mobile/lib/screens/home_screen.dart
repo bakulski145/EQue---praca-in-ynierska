@@ -66,6 +66,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     return Scaffold(
+      
       appBar: AppBar(
         title: EQueBrand(
           markSize: 26,
@@ -204,10 +205,14 @@ class _MenuButton extends StatelessWidget {
 
 final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    return EQueCard(
-      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-      onTap: onTap,
-      child: Row(
+ return Semantics(
+      button: true, // Informuje lektora: "Powiedz użytkownikowi, że to jest przycisk"
+      label: '$title. $subtitle', // Łączy tytuł i opis w jedno zdanie
+      excludeSemantics: true, // Ukrywa wizualne "wnętrzności" przed lektorem
+      child: EQueCard(
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+        onTap: onTap,
+        child: Row(
         children: [
           Container(
             width: 48,
@@ -230,6 +235,7 @@ final isDark = Theme.of(context).brightness == Brightness.dark;
           ),
           const Icon(Icons.chevron_right, size: 20, color: EQueColors.textFaint),
         ],
+      ),
       ),
     );
   }
